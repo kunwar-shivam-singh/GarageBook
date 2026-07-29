@@ -18,9 +18,19 @@ export default function ForgotPasswordPage() {
     setErrorMsg('');
     setSuccess(false);
 
+    const cleanEmail = email.trim().toLowerCase();
+    
+    // Explicit client-side validation
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(cleanEmail)) {
+      setErrorMsg('Please enter a valid email address (e.g. owner@garage.com).');
+      toast.error('Please enter a valid email address.');
+      setLoading(false);
+      return;
+    }
+
     try {
       const supabase = createClient();
-      const { error } = await supabase.auth.resetPasswordForEmail(email.trim(), {
+      const { error } = await supabase.auth.resetPasswordForEmail(cleanEmail, {
         redirectTo: `${window.location.origin}/reset-password`,
       });
 
@@ -29,11 +39,11 @@ export default function ForgotPasswordPage() {
         toast.error(error.message);
       } else {
         setSuccess(true);
-        toast.success('Password recovery link sent!');
+        toast.success('Password recovery link sent successfully!');
       }
     } catch (err: any) {
       console.error(err);
-      setErrorMsg('An unexpected error occurred. Please try again.');
+      setErrorMsg('An unexpected network error occurred. Please check your connection.');
     } finally {
       setLoading(false);
     }

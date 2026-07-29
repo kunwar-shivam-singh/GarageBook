@@ -57,9 +57,9 @@ export default async function CustomerDetailsPage({ params }: CustomerPageProps)
       <div className="flex-1 md:pl-64 min-h-screen flex flex-col pb-20 md:pb-0">
         
         {/* Header */}
-        <Header garageName={garageName} showBackButton={true} backDestination="/search" />
+        <Header garageName={garageName} title="Customer Profile" showBackButton={true} backDestination="/search" />
 
-        <main className="max-w-2xl w-full mx-auto px-4 py-8">
+        <main className="max-w-2xl w-full mx-auto px-4 py-4 md:py-8">
           
           {/* Navigation Link back */}
           <div className="mb-6">

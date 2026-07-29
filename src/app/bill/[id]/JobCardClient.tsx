@@ -285,6 +285,9 @@ export default function JobCardClient({ bill: initialBill, settings }: JobCardCl
         setBill({ ...fresh, jobStatus: nextStatus as any });
       }
       toast.success(`Timer action "${action}" registered.`);
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(new CustomEvent('gb-data-changed'));
+      }
     } catch (err) {
       console.error(err);
       toast.error('Failed to update timer state.');
@@ -340,6 +343,9 @@ export default function JobCardClient({ bill: initialBill, settings }: JobCardCl
     setPartDiscountPercent('0');
     setActiveModal(null);
     toast.success('Spare part appended to job card.');
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent('gb-data-changed'));
+    }
   };
 
   // Add Labour Modal Saver
@@ -390,6 +396,9 @@ export default function JobCardClient({ bill: initialBill, settings }: JobCardCl
     setServiceMechId('');
     setActiveModal(null);
     toast.success('Service task appended to job card.');
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent('gb-data-changed'));
+    }
   };
 
   // Remove item/service from card
@@ -468,6 +477,9 @@ export default function JobCardClient({ bill: initialBill, settings }: JobCardCl
       });
 
       toast.success('Invoice finalized and vehicle delivered!');
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(new CustomEvent('gb-data-changed'));
+      }
       router.refresh();
     } catch (err) {
       console.error(err);
@@ -489,9 +501,9 @@ export default function JobCardClient({ bill: initialBill, settings }: JobCardCl
       <Navigation garageName={settings.name} />
 
       <div className="flex-1 md:pl-64 min-h-screen flex flex-col pb-20 md:pb-0">
-        <Header garageName={settings.name} showBackButton={true} backDestination="/" />
+        <Header garageName={settings.name} title="Job Card" showBackButton={true} backDestination="/" />
 
-        <main className="max-w-3xl w-full mx-auto px-4 py-8 space-y-6">
+        <main className="max-w-3xl w-full mx-auto px-4 py-4 md:py-8 space-y-4 md:space-y-6">
           
           {/* Header Card */}
           <div className="bg-white border border-slate-200 rounded-2xl p-5 shadow-sm flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">

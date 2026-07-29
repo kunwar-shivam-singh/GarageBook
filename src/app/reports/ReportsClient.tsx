@@ -254,9 +254,9 @@ export default function ReportsClient({ bills, settings, imports }: ReportsClien
       <Navigation garageName={settings.name} />
 
       <div className="flex-1 md:pl-64 min-h-screen flex flex-col pb-20 md:pb-0">
-        <Header garageName={settings.name} showBackButton={true} backDestination="/" />
+        <Header garageName={settings.name} title="Reports & Analytics" showBackButton={true} backDestination="/" />
 
-        <main className="max-w-2xl w-full mx-auto px-4 py-8 space-y-6">
+        <main className="max-w-2xl w-full mx-auto px-4 py-4 md:py-8 space-y-4 md:space-y-6">
           
           {/* Header Title */}
           <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 no-print">

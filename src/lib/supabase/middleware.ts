@@ -82,8 +82,11 @@ export async function updateSession(request: NextRequest) {
 
   const isAuthRoute = pathname === '/login' || 
                       pathname === '/signup' || 
-                      pathname === '/forgot-password' || 
-                      pathname === '/reset-password';
+                      pathname === '/forgot-password';
+
+  if (pathname === '/reset-password') {
+    return response;
+  }
 
   if (!user && !isAuthRoute) {
     const url = request.nextUrl.clone();

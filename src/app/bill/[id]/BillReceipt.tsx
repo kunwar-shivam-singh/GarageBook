@@ -532,9 +532,9 @@ Status: ${bill.paymentStatus}`;
       <Navigation garageName={settings.name} />
 
       <div className="flex-1 md:pl-64 min-h-screen flex flex-col pb-20 md:pb-0">
-        <Header garageName={settings.name} showBackButton={true} backDestination={`/customer/${bill.customerId}`} />
+        <Header garageName={settings.name} title="Invoice" showBackButton={true} backDestination={`/customer/${bill.customerId}`} />
 
-        <main className="max-w-2xl w-full mx-auto px-4 py-8">
+        <main className="max-w-2xl w-full mx-auto px-4 py-4 md:py-8">
           
           {/* Back Nav links */}
           <div className="mb-6 flex items-center justify-between no-print">

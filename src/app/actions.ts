@@ -138,9 +138,13 @@ export async function getOpenServiceQueue() {
   const { garageId, supabase } = await getContext();
   const all = await db.getRecentBills(garageId, 100, supabase);
   return all.filter(b => 
-    b.jobStatus !== 'Delivered' && 
+    (b.jobStatus as string) !== 'Completed' &&
+    (b.jobStatus as string) !== 'Work Completed' &&
+    (b.jobStatus as string) !== 'Ready for Delivery' &&
+    (b.jobStatus as string) !== 'Delivered' && 
     (b.jobStatus as string) !== 'Cancelled' && 
-    (b.jobStatus as string) !== 'Closed'
+    (b.jobStatus as string) !== 'Closed' &&
+    b.paymentStatus !== 'PAID'
   );
 }
 
@@ -310,5 +314,56 @@ export async function getActiveJobByVehicleNumber(vehicleNumber: string) {
     vehicleNumber: activeBill.vehicle?.vehicleNumber || vehicleNumber,
     jobStatus: activeBill.jobStatus,
     mechanicName: activeBill.mechanic?.name || 'Unassigned'
+  };
+}
+
+export async function getLiveHeaderStats() {
+  const { garageId, supabase } = await getContext();
+  const bills = await db.getRecentBills(garageId, 200, supabase);
+  
+  const today = new Date();
+  const isSameDay = (d1: any, d2: Date) => {
+    const date1 = new Date(d1);
+    return date1.getDate() === d2.getDate() &&
+           date1.getMonth() === d2.getMonth() &&
+           date1.getFullYear() === d2.getFullYear();
+  };
+
+  const queue = bills.filter(b => 
+    (b.jobStatus as string) !== 'Completed' &&
+    (b.jobStatus as string) !== 'Work Completed' &&
+    (b.jobStatus as string) !== 'Ready for Delivery' &&
+    (b.jobStatus as string) !== 'Delivered' && 
+    (b.jobStatus as string) !== 'Cancelled' && 
+    (b.jobStatus as string) !== 'Closed' &&
+    b.paymentStatus !== 'PAID'
+  ).length;
+
+  const working = bills.filter(b => b.jobStatus === 'Working').length;
+  const waiting = bills.filter(b => b.jobStatus === 'Waiting').length;
+  const ready = bills.filter(b => 
+    (b.jobStatus as string) === 'Ready for Delivery' || 
+    (b.jobStatus as string) === 'Completed' || 
+    (b.jobStatus as string) === 'Work Completed'
+  ).length;
+
+  const todaysJobs = bills.filter(b => isSameDay(b.date, today)).length;
+
+  const pendingBills = bills
+    .filter(b => b.remainingAmount > 0 && (b.jobStatus as string) !== 'Cancelled')
+    .reduce((sum, b) => sum + (b.remainingAmount || 0), 0);
+
+  const todaysCollection = bills
+    .filter(b => isSameDay(b.date, today))
+    .reduce((sum, b) => sum + (b.receivedAmount || 0), 0);
+
+  return {
+    queue,
+    working,
+    waiting,
+    ready,
+    todaysJobs,
+    pendingBills,
+    todaysCollection
   };
 }

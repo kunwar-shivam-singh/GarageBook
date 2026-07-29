@@ -765,6 +765,9 @@ Payment Status: ${derivedStatus}`;
       }
 
       setTimeout(() => {
+        if (typeof window !== 'undefined') {
+          window.dispatchEvent(new CustomEvent('gb-data-changed'));
+        }
         router.push(`/bill/${resultBill.id}`);
       }, 500);
 
@@ -782,11 +785,12 @@ Payment Status: ${derivedStatus}`;
       <div className="flex-1 md:pl-64 min-h-screen flex flex-col pb-20 md:pb-0">
         <Header 
           garageName={garageName} 
+          title={isEditMode ? "Edit Bill" : "New Bill"}
           showBackButton={true} 
           backDestination={isEditMode ? `/bill/${bill?.id}` : (preselectedCustomerId ? `/customer/${preselectedCustomerId}` : '/')} 
         />
 
-        <main className="max-w-3xl w-full mx-auto px-4 py-8">
+        <main className="max-w-3xl w-full mx-auto px-4 py-4 md:py-8">
           <div className="mb-6">
             <h1 className="text-3xl font-extrabold text-slate-900 tracking-tight break-words">
               {isEditMode ? `Edit Bill ${bill?.invoiceNumber}` : 'New Register Entry'}

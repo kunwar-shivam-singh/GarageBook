@@ -25,7 +25,7 @@ import { GarageSettings, Mechanic, PartSuggestion, ServiceSuggestion } from '@/l
 import { 
   User, FileText, Wrench, Package, Briefcase, CreditCard, 
   Calendar, Bell, Database, Shield, HelpCircle, Info, 
-  Upload, RefreshCw, Save, Trash2, Plus, Edit2, Check, X, Search, ChevronRight, ToggleLeft, ToggleRight
+  Upload, RefreshCw, Save, Trash2, Plus, Edit2, Check, X, Search, ChevronRight, ToggleLeft, ToggleRight, LogOut
 } from 'lucide-react';
 import { toast } from 'sonner';
 
@@ -35,6 +35,36 @@ export default function SettingsPage() {
   const [saving, setSaving] = useState(false);
   const [email, setEmail] = useState('');
   const [searchQuery, setSearchQuery] = useState('');
+  const [showLogoutConfirm, setShowLogoutConfirm] = useState(false);
+
+  const handlePerformLogout = async () => {
+    try {
+      const isSupabase = !!(
+        process.env.NEXT_PUBLIC_SUPABASE_URL && 
+        process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
+      );
+      if (isSupabase) {
+        const supabase = createClient();
+        await supabase.auth.signOut();
+      }
+      
+      // Clear local mode session
+      document.cookie = "garage_owner_session=; path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT";
+      
+      // Clear storage
+      sessionStorage.clear();
+      localStorage.clear();
+      
+      toast.success('Successfully logged out.');
+      setShowLogoutConfirm(false);
+      
+      // Redirect using hard navigation to drop JS memories & routes history
+      window.location.href = '/login';
+    } catch (err) {
+      console.error(err);
+      toast.error('Failed to log out.');
+    }
+  };
 
   // 12 Settings Sections State
   const [activeSection, setActiveSection] = useState<string | null>(null);
@@ -132,15 +162,6 @@ export default function SettingsPage() {
 
   // Load configuration details on mount
   useEffect(() => {
-    // 1. Mobile viewport lockout redirect
-    const checkMobile = () => {
-      if (typeof window !== 'undefined' && window.innerWidth < 768) {
-        toast.error('Settings page access is restricted to Desktop viewports only.');
-        router.push('/');
-      }
-    };
-    checkMobile();
-
     const loadData = async () => {
       try {
         // Load settings from db
@@ -214,6 +235,17 @@ export default function SettingsPage() {
 
     loadData();
   }, [router]);
+
+  // Load section query param if any
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      const params = new URLSearchParams(window.location.search);
+      const sec = params.get('section');
+      if (sec) {
+        setActiveSection(sec);
+      }
+    }
+  }, []);
 
   // Handle Logo Upload
   const handleLogoUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -475,9 +507,9 @@ export default function SettingsPage() {
       <Navigation garageName={profileSettings.name || 'GarageBook'} />
 
       <div className="flex-1 md:pl-64 min-h-screen flex flex-col pb-20 md:pb-0">
-        <Header garageName={profileSettings.name || 'GarageBook'} showBackButton={true} backDestination="/" />
+        <Header garageName={profileSettings.name || 'GarageBook'} title="Settings" showBackButton={true} backDestination="/" />
 
-        <main className="max-w-4xl w-full mx-auto px-4 py-8 space-y-6">
+        <main className="max-w-4xl w-full mx-auto px-4 py-4 md:py-8 space-y-4 md:space-y-6">
           {/* Header Title */}
           <div>
             <h1 className="text-2xl font-black text-slate-900 tracking-tight">Settings</h1>
@@ -527,6 +559,18 @@ export default function SettingsPage() {
                 <p className="text-slate-400 text-xs mt-1">Try matching names like &ldquo;Mechanics&rdquo;, &ldquo;GST&rdquo;, or &ldquo;Bill&rdquo;</p>
               </div>
             )}
+          </div>
+
+          {/* Logout Section at the bottom */}
+          <div className="pt-6 flex justify-center border-t border-slate-200">
+            <button
+              type="button"
+              onClick={() => setShowLogoutConfirm(true)}
+              className="w-full max-w-sm flex items-center justify-center gap-2 bg-red-50 hover:bg-red-100 text-red-600 border border-red-200 rounded-2xl py-4 text-sm font-extrabold shadow-sm hover:shadow active:scale-95 transition-all cursor-pointer"
+            >
+              <LogOut className="h-5 w-5" />
+              Sign Out / Logout
+            </button>
           </div>
 
           {/* OVERLAYS/MODALS FOR EACH SECTION */}
@@ -1100,6 +1144,40 @@ export default function SettingsPage() {
               </div>
             </div>
           )}
+
+          {/* DUPLICATE/LOGOUT CONFIRM OVERLAY */}
+          {showLogoutConfirm && (
+            <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+              <div className="bg-white rounded-2xl shadow-xl w-full max-w-sm relative p-6 animate-in fade-in zoom-in-95 duration-150 space-y-4">
+                <div className="flex items-start gap-2.5">
+                  <div className="h-10 w-10 bg-red-50 text-red-650 rounded-xl flex items-center justify-center flex-shrink-0">
+                    <LogOut className="h-5.5 w-5.5" />
+                  </div>
+                  <div>
+                    <h3 className="font-extrabold text-slate-900 text-sm">Logout Confirmation</h3>
+                    <p className="text-xs text-slate-500 mt-1">Are you sure you want to logout?</p>
+                  </div>
+                </div>
+                <div className="flex gap-2 justify-end pt-2">
+                  <button 
+                    type="button" 
+                    onClick={() => setShowLogoutConfirm(false)} 
+                    className="px-4 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-bold transition-all active:scale-95 cursor-pointer"
+                  >
+                    Cancel
+                  </button>
+                  <button 
+                    type="button" 
+                    onClick={handlePerformLogout} 
+                    className="px-4 py-2.5 bg-red-650 hover:bg-red-750 text-white rounded-xl text-xs font-extrabold shadow-sm hover:shadow active:scale-95 transition-all cursor-pointer"
+                  >
+                    Logout
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+
         </main>
       </div>
     </div>

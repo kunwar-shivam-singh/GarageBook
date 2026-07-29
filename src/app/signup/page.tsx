@@ -27,13 +27,22 @@ export default function SignupPage() {
     setErrorMsg('');
     setSuccess(false);
 
+    const cleanEmail = email.trim().toLowerCase();
+
     // Validation checks
-    if (password.length < 6) {
-      setErrorMsg('Password must be at least 6 characters long.');
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(cleanEmail)) {
+      setErrorMsg('Please enter a valid email address (e.g. owner@garage.com).');
+      toast.error('Please enter a valid email address.');
+      return;
+    }
+    if (password.length < 8) {
+      setErrorMsg('Password must be at least 8 characters long.');
+      toast.error('Password must be at least 8 characters long.');
       return;
     }
     if (password !== confirmPassword) {
       setErrorMsg('Passwords do not match.');
+      toast.error('Passwords do not match.');
       return;
     }
 
@@ -42,7 +51,7 @@ export default function SignupPage() {
     try {
       const supabase = createClient();
       const { data, error } = await supabase.auth.signUp({
-        email: email.trim(),
+        email: cleanEmail,
         password: password,
         options: {
           data: {

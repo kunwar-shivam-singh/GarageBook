@@ -189,21 +189,35 @@ export default function DashboardClient({ initialBills, settings }: DashboardCli
     // Today's checked-in vehicles
     const todayVehicles = bills.filter(b => isSameDay(b.date, today)).length;
     
-    // Open Jobs (Not Delivered and Not Cancelled)
-    const openJobs = bills.filter(b => (b.jobStatus as string) !== 'Delivered' && (b.jobStatus as string) !== 'Cancelled');
+    // Open Jobs (Not Completed/Delivered and Not Paid)
+    const openJobs = bills.filter(b => 
+      (b.jobStatus as string) !== 'Completed' &&
+      (b.jobStatus as string) !== 'Work Completed' &&
+      (b.jobStatus as string) !== 'Ready for Delivery' &&
+      (b.jobStatus as string) !== 'Delivered' && 
+      (b.jobStatus as string) !== 'Cancelled' &&
+      b.paymentStatus !== 'PAID'
+    );
     const openJobsCount = openJobs.length;
 
     // Active Working Jobs
     const workingJobsCount = bills.filter(b => b.jobStatus === 'Working').length;
 
-    // Completed Today (Ready for Delivery or Delivered today)
+    // Completed Today (Ready for Delivery, Completed or Delivered today)
     const completedTodayCount = bills.filter(b => 
-      ((b.jobStatus as string) === 'Ready for Delivery' || (b.jobStatus as string) === 'Delivered') && 
+      ((b.jobStatus as string) === 'Ready for Delivery' || 
+       (b.jobStatus as string) === 'Completed' || 
+       (b.jobStatus as string) === 'Work Completed' || 
+       (b.jobStatus as string) === 'Delivered') && 
       isSameDay(b.date, today)
     ).length;
 
-    // Pending Deliveries (Ready for Delivery status)
-    const pendingDeliveriesCount = bills.filter(b => (b.jobStatus as string) === 'Ready for Delivery').length;
+    // Pending Deliveries (Ready for Delivery/Completed status)
+    const pendingDeliveriesCount = bills.filter(b => 
+      (b.jobStatus as string) === 'Ready for Delivery' || 
+      (b.jobStatus as string) === 'Completed' || 
+      (b.jobStatus as string) === 'Work Completed'
+    ).length;
 
     // Pending Payments (Any remaining dues)
     const pendingPaymentsCount = bills.filter(b => b.remainingAmount > 0 && (b.jobStatus as string) !== 'Cancelled').length;
@@ -305,6 +319,9 @@ export default function DashboardClient({ initialBills, settings }: DashboardCli
       const saved = await updateBill(bill.id, payload);
       setBills(prev => prev.map(b => b.id === bill.id ? { ...b, ...saved } : b));
       toast.success('Workshop operational job card updated!');
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(new CustomEvent('gb-data-changed'));
+      }
       return saved;
     } catch (err) {
       console.error(err);
@@ -451,6 +468,9 @@ export default function DashboardClient({ initialBills, settings }: DashboardCli
       }
       
       toast.success('Payment recorded successfully.');
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(new CustomEvent('gb-data-changed'));
+      }
       setPaymentAmount('');
       setPaymentNotes('');
       setExpectedClearanceDate('');
@@ -489,6 +509,9 @@ export default function DashboardClient({ initialBills, settings }: DashboardCli
       }
 
       toast.success('Mechanic assigned successfully!');
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(new CustomEvent('gb-data-changed'));
+      }
       setAssigningBill(null);
       setSelectedMechanicId('');
       setEstimatedPriority('Normal');
@@ -502,7 +525,10 @@ export default function DashboardClient({ initialBills, settings }: DashboardCli
   // Collapsible list calculations
   const completedTodayBills = useMemo(() => {
     return bills.filter(b => 
-      ((b.jobStatus as string) === 'Ready for Delivery' || (b.jobStatus as string) === 'Delivered') && 
+      ((b.jobStatus as string) === 'Ready for Delivery' || 
+       (b.jobStatus as string) === 'Completed' || 
+       (b.jobStatus as string) === 'Work Completed' || 
+       (b.jobStatus as string) === 'Delivered') && 
       isSameDay(b.date, today)
     );
   }, [bills]);
@@ -533,9 +559,9 @@ export default function DashboardClient({ initialBills, settings }: DashboardCli
       <Navigation garageName={settings.name} />
 
       <div className="flex-1 md:pl-64 min-h-screen flex flex-col pb-20 md:pb-0">
-        <Header garageName={settings.name} />
+        <Header garageName={settings.name} title="Dashboard" showSearchIcon={true} />
 
-        <main className="max-w-7xl w-full mx-auto px-4 py-8 space-y-8">
+        <main className="max-w-7xl w-full mx-auto px-4 py-4 md:py-8 space-y-5 md:space-y-8">
           
           {/* 1. TOP COMPACT SUMMARY CARDS (NO REVENUE GRAPH OR FINANCIAL VALUES) */}
           <div className="grid grid-cols-2 lg:grid-cols-6 gap-3.5">

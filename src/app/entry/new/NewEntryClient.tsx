@@ -172,6 +172,9 @@ export default function NewEntryClient({ garageName }: NewEntryClientProps) {
       setStep(1);
 
       toast.success("Vehicle added to workshop queue.");
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(new CustomEvent('gb-data-changed'));
+      }
       router.push('/');
       router.refresh();
     } catch (err) {
@@ -186,9 +189,9 @@ export default function NewEntryClient({ garageName }: NewEntryClientProps) {
       <Navigation garageName={garageName} />
 
       <div className="flex-1 md:pl-64 min-h-screen flex flex-col pb-20 md:pb-0">
-        <Header garageName={garageName} showBackButton={true} backDestination="/" />
+        <Header garageName={garageName} title="New Bill" showBackButton={true} backDestination="/" />
 
-        <main className="max-w-2xl w-full mx-auto px-4 py-8 space-y-6">
+        <main className="max-w-2xl w-full mx-auto px-4 py-4 md:py-8 space-y-4 md:space-y-6">
           
           {/* Step Indicator Headers */}
           <div className="bg-white border border-slate-200 rounded-2xl p-5 shadow-sm">

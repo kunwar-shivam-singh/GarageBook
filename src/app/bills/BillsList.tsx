@@ -33,9 +33,9 @@ export default function BillsList({ initialBills, garageName }: BillsListProps) 
       <div className="flex-1 md:pl-64 min-h-screen flex flex-col pb-20 md:pb-0">
         
         {/* Header */}
-        <Header garageName={garageName} showBackButton={true} backDestination="/" />
+        <Header garageName={garageName} title="Bills History" showBackButton={true} backDestination="/" />
 
-        <main className="max-w-2xl w-full mx-auto px-4 py-8">
+        <main className="max-w-2xl w-full mx-auto px-4 py-4 md:py-8">
           
           {/* Title Section */}
           <div className="mb-6 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">

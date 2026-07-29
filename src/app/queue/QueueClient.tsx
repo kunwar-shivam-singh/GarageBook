@@ -111,6 +111,9 @@ export default function QueueClient({ initialQueue, initialMechanics, garageName
       });
 
       setQueue(prev => prev.map(b => b.id === billId ? { ...b, ...updatedBill } : b));
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(new CustomEvent('gb-data-changed'));
+      }
       router.refresh();
     } catch (error) {
       console.error('Failed to assign mechanic:', error);
@@ -164,6 +167,9 @@ export default function QueueClient({ initialQueue, initialMechanics, garageName
       });
 
       setQueue(prev => prev.filter(b => b.id !== billId));
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(new CustomEvent('gb-data-changed'));
+      }
       router.push(`/bill/${billId}`);
     } catch (error) {
       console.error('Failed to deliver vehicle:', error);
@@ -244,9 +250,9 @@ export default function QueueClient({ initialQueue, initialMechanics, garageName
       <Navigation garageName={garageName} />
 
       <div className="flex-1 md:pl-64 min-h-screen flex flex-col pb-20 md:pb-0">
-        <Header garageName={garageName} showBackButton={true} backDestination="/" />
+        <Header garageName={garageName} title="Open Queue" showBackButton={true} backDestination="/" showSearchIcon={true} />
 
-        <main className="max-w-4xl w-full mx-auto px-4 py-8 space-y-6">
+        <main className="max-w-4xl w-full mx-auto px-4 py-4 md:py-8 space-y-4 md:space-y-6">
           
           {/* Header Panel */}
           <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">

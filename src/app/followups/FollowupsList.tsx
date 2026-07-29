@@ -138,9 +138,9 @@ Thank you.`;
       <Navigation garageName={garageName} />
 
       <div className="flex-1 md:pl-64 min-h-screen flex flex-col pb-20 md:pb-0">
-        <Header garageName={garageName} showBackButton={true} backDestination="/" />
+        <Header garageName={garageName} title="Follow-ups" showBackButton={true} backDestination="/" />
 
-        <main className="max-w-2xl w-full mx-auto px-4 py-8">
+        <main className="max-w-2xl w-full mx-auto px-4 py-4 md:py-8">
           <div className="mb-6 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
             <div>
               <h1 className="text-3xl font-extrabold text-slate-900 tracking-tight">Payments & Follow-ups</h1>

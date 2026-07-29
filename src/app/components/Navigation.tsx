@@ -1,12 +1,13 @@
 'use client';
 
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import { createClient } from '@/lib/supabase/client';
 import { 
   Home, PlusCircle, Search, Settings, 
-  FileText, LogOut, BookOpen, Clock, Wrench, Upload
+  FileText, LogOut, BookOpen, Clock, Wrench, Upload,
+  X, Menu, HelpCircle, Info, Users
 } from 'lucide-react';
 
 interface NavigationProps {
@@ -17,12 +18,100 @@ export default function Navigation({ garageName }: NavigationProps) {
   const pathname = usePathname();
   const router = useRouter();
   const supabase = createClient();
+  const [mobileDrawerOpen, setMobileDrawerOpen] = useState(false);
+  const [aboutOpen, setAboutOpen] = useState(false);
+  const drawerTouchStartX = React.useRef(0);
+
+  const closeDrawer = () => {
+    setMobileDrawerOpen(false);
+    if (typeof window !== 'undefined' && window.history.state?.drawerOpen) {
+      window.history.back();
+    }
+  };
+
+  const handleDrawerTouchStart = (e: React.TouchEvent) => {
+    drawerTouchStartX.current = e.touches[0].clientX;
+  };
+
+  const handleDrawerTouchEnd = (e: React.TouchEvent) => {
+    const diff = drawerTouchStartX.current - e.changedTouches[0].clientX;
+    if (diff > 60) {
+      closeDrawer();
+    }
+  };
+
+  // 1. Swipe right from left edge to open the drawer
+  useEffect(() => {
+    let touchStartX = 0;
+    let touchStartY = 0;
+
+    const handleTouchStart = (e: TouchEvent) => {
+      touchStartX = e.touches[0].clientX;
+      touchStartY = e.touches[0].clientY;
+    };
+
+    const handleTouchEnd = (e: TouchEvent) => {
+      const touchEndX = e.changedTouches[0].clientX;
+      const touchEndY = e.changedTouches[0].clientY;
+      const diffX = touchEndX - touchStartX;
+      const diffY = touchEndY - touchStartY;
+
+      // Only horizontal swipes trigger it
+      if (Math.abs(diffX) > Math.abs(diffY)) {
+        if (diffX > 80 && touchStartX < 35) {
+          setMobileDrawerOpen(true);
+        }
+      }
+    };
+
+    window.addEventListener('touchstart', handleTouchStart);
+    window.addEventListener('touchend', handleTouchEnd);
+
+    const handleOpenDrawer = () => setMobileDrawerOpen(true);
+    window.addEventListener('gb-open-mobile-drawer', handleOpenDrawer);
+
+    return () => {
+      window.removeEventListener('touchstart', handleTouchStart);
+      window.removeEventListener('touchend', handleTouchEnd);
+      window.removeEventListener('gb-open-mobile-drawer', handleOpenDrawer);
+    };
+  }, []);
+
+  // 2. Intercept browser/Android back button to close drawer
+  useEffect(() => {
+    if (!mobileDrawerOpen) return;
+
+    window.history.pushState({ drawerOpen: true }, '');
+
+    const handlePopState = () => {
+      setMobileDrawerOpen(false);
+    };
+
+    window.addEventListener('popstate', handlePopState);
+    return () => {
+      window.removeEventListener('popstate', handlePopState);
+    };
+  }, [mobileDrawerOpen]);
 
   const handleLogout = async () => {
     if (confirm('Are you sure you want to sign out?')) {
-      await supabase.auth.signOut();
-      router.push('/login');
-      router.refresh();
+      try {
+        const isSupabase = !!(
+          process.env.NEXT_PUBLIC_SUPABASE_URL && 
+          process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
+        );
+        if (isSupabase) {
+          await supabase.auth.signOut();
+        }
+      } catch (err) {
+        console.error(err);
+      }
+      
+      document.cookie = "garage_owner_session=; path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT";
+      sessionStorage.clear();
+      localStorage.clear();
+      
+      window.location.href = '/login';
     }
   };
 
@@ -37,6 +126,27 @@ export default function Navigation({ garageName }: NavigationProps) {
     { label: 'Import Dues', href: '/imports', icon: Upload, showOnMobile: false },
     { label: 'Settings', href: '/settings', icon: Settings, showOnMobile: false },
   ];
+
+  const drawerLinks = [
+    { label: 'Dashboard', href: '/dashboard', icon: Home },
+    { label: 'New Entry', href: '/entry', icon: PlusCircle },
+    { label: 'Search', href: '/search', icon: Search },
+    { label: 'Queue', href: '/queue', icon: Wrench },
+    { label: 'Reports', href: '/reports', icon: BookOpen },
+    { label: 'Customers', href: '/customers', icon: Users },
+    { label: 'Bills', href: '/bills', icon: FileText },
+    { label: 'Follow-ups', href: '/followups', icon: Clock },
+    { label: 'Imports', href: '/imports', icon: Upload },
+    { label: 'Settings', href: '/settings', icon: Settings },
+    { label: 'Help', href: '/help', icon: HelpCircle },
+  ];
+
+  const isDrawerActive = (href: string) => {
+    if (href === '/dashboard') return pathname === '/';
+    if (href === '/entry') return pathname.startsWith('/entry');
+    if (href === '/customers') return pathname === '/search' || pathname.startsWith('/customer');
+    return pathname === href || pathname.startsWith(href);
+  };
 
   return (
     <>
@@ -116,6 +226,123 @@ export default function Navigation({ garageName }: NavigationProps) {
           );
         })}
       </nav>
+
+      {/* 3. MOBILE SLIDE-OUT DRAWER */}
+      {mobileDrawerOpen && (
+        <div className="fixed inset-0 z-50 md:hidden flex">
+          {/* Overlay backdrop */}
+          <div 
+            onClick={closeDrawer}
+            className="fixed inset-0 bg-slate-900/40 backdrop-blur-sm transition-opacity duration-300"
+          />
+          
+          {/* Drawer Panel */}
+          <div 
+            onTouchStart={handleDrawerTouchStart}
+            onTouchEnd={handleDrawerTouchEnd}
+            className="relative flex flex-col w-64 max-w-xs bg-white h-full shadow-2xl z-50 animate-in slide-in-from-left duration-200"
+          >
+            
+            {/* Header */}
+            <div className="h-16 flex items-center justify-between px-5 border-b border-slate-100 bg-slate-50 flex-shrink-0">
+              <div className="flex items-center gap-2">
+                <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-blue-600 text-white">
+                  <BookOpen className="h-4 w-4" />
+                </div>
+                <span className="font-extrabold text-slate-900 tracking-tight text-sm">GarageBook Menu</span>
+              </div>
+              <button 
+                onClick={closeDrawer}
+                className="h-8 w-8 rounded-lg flex items-center justify-center text-slate-400 hover:bg-slate-100 hover:text-slate-700 active:scale-95 transition-all"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+
+            {/* Drawer Menu Items */}
+            <nav className="flex-1 px-4 py-5 space-y-1.5 overflow-y-auto">
+              {drawerLinks.map((item) => {
+                const Icon = item.icon;
+                const active = isDrawerActive(item.href);
+                return (
+                  <Link
+                    key={item.href}
+                    href={item.href}
+                    onClick={closeDrawer}
+                    className={`flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-bold transition-colors ${
+                      active 
+                        ? 'bg-blue-50 text-blue-600' 
+                        : 'text-slate-600 hover:bg-slate-50'
+                    }`}
+                  >
+                    <Icon className="h-5 w-5 text-slate-400" />
+                    <span>{item.label}</span>
+                  </Link>
+                );
+              })}
+
+              {/* About Button triggers modal dialog */}
+              <button
+                type="button"
+                onClick={() => {
+                  closeDrawer();
+                  setAboutOpen(true);
+                }}
+                className="w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-bold text-slate-600 hover:bg-slate-50 transition-colors text-left"
+              >
+                <Info className="h-5 w-5 text-slate-400" />
+                <span>About</span>
+              </button>
+            </nav>
+
+            {/* Logout at the bottom of the drawer */}
+            <div className="p-4 border-t border-slate-100 flex-shrink-0 bg-slate-50">
+              <button
+                onClick={() => {
+                  setMobileDrawerOpen(false);
+                  handleLogout();
+                }}
+                className="w-full flex items-center justify-center gap-2 bg-red-50 hover:bg-red-100 text-red-650 border border-red-200 rounded-xl py-3 text-xs font-extrabold shadow-sm active:scale-95 transition-all cursor-pointer"
+              >
+                <LogOut className="h-4.5 w-4.5" />
+                <span>Logout</span>
+              </button>
+            </div>
+
+          </div>
+        </div>
+      )}
+
+      {/* 4. ABOUT DIALOG MODAL */}
+      {aboutOpen && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
+          <div 
+            onClick={() => setAboutOpen(false)}
+            className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm transition-opacity duration-300"
+          />
+          <div className="relative bg-white rounded-3xl max-w-sm w-full p-6 shadow-2xl border border-slate-100 z-10 animate-in zoom-in-95 duration-200 text-center space-y-4">
+            <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-blue-50 text-blue-600 mx-auto">
+              <BookOpen className="h-6 w-6" />
+            </div>
+            <div className="space-y-1">
+              <h3 className="text-lg font-black text-slate-900">GarageBook v1.0</h3>
+              <p className="text-xs text-slate-400 font-bold uppercase tracking-wider">Digital Register for Garages</p>
+            </div>
+            <p className="text-slate-600 text-xs font-semibold leading-relaxed">
+              Designed to help garage owners track intake sheets, manage work orders, and generate invoices with real-time stats updates.
+            </p>
+            <div className="pt-2">
+              <button
+                type="button"
+                onClick={() => setAboutOpen(false)}
+                className="w-full bg-slate-900 hover:bg-slate-800 text-white rounded-xl py-2.5 text-xs font-extrabold active:scale-95 transition-all cursor-pointer"
+              >
+                Close
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </>
   );
 }

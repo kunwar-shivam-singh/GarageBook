@@ -19,12 +19,14 @@ export default function ResetPasswordPage() {
     setErrorMsg('');
     setSuccess(false);
 
-    if (password.length < 6) {
-      setErrorMsg('Password must be at least 6 characters long.');
+    if (password.length < 8) {
+      setErrorMsg('Password must be at least 8 characters long.');
+      toast.error('Password must be at least 8 characters long.');
       return;
     }
     if (password !== confirmPassword) {
       setErrorMsg('Passwords do not match.');
+      toast.error('Passwords do not match.');
       return;
     }
 
@@ -41,16 +43,20 @@ export default function ResetPasswordPage() {
         toast.error(error.message);
       } else {
         setSuccess(true);
-        toast.success('Password reset successfully!');
+        toast.success('Password updated successfully!');
         
-        // Wait 1.5 seconds and redirect to home
+        // Clear session state to enforce fresh login
+        document.cookie = "garage_owner_session=; path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT";
+        sessionStorage.clear();
+        localStorage.clear();
+        
         setTimeout(() => {
-          router.push('/');
+          window.location.href = '/login';
         }, 1500);
       }
     } catch (err: any) {
       console.error(err);
-      setErrorMsg('An unexpected error occurred. Please try again.');
+      setErrorMsg('An unexpected network error occurred. Please check your connection.');
     } finally {
       setLoading(false);
     }
@@ -79,7 +85,7 @@ export default function ResetPasswordPage() {
         {success && (
           <div className="p-4 rounded-xl border border-green-200 bg-green-50 text-green-800 font-bold text-sm flex items-start gap-2 mb-6">
             <CheckCircle className="h-5 w-5 flex-shrink-0 text-green-600" />
-            <span>Password updated! Redirecting to register dashboard...</span>
+            <span>Password updated! Redirecting to login...</span>
           </div>
         )}
 
