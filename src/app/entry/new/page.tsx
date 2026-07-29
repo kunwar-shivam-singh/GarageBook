@@ -2,23 +2,22 @@ import React from 'react';
 import { db } from '@/lib/db';
 import { getActiveGarageId } from '@/lib/supabase/auth';
 import { createClient } from '@/lib/supabase/server';
-import DashboardClient from './components/DashboardClient';
+import NewEntryClient from './NewEntryClient';
 
 export const revalidate = 0; // Dynamic server rendering
 
-export default async function DashboardPage() {
+export default async function NewEntryPage() {
   // Resolve active tenant garage ID on the server
   const garageId = await getActiveGarageId();
 
-  // Fetch active settings and bills for the logged-in garage
+  // Load garage settings on server using request-specific client
   const supabase = await createClient();
   const settings = await db.getGarageSettings(garageId, supabase);
-  const bills = await db.getRecentBills(garageId, 1000, supabase);
+  const garageName = settings?.name || 'GarageBook';
 
   return (
-    <DashboardClient 
-      initialBills={bills} 
-      settings={settings} 
+    <NewEntryClient 
+      garageName={garageName} 
     />
   );
 }
