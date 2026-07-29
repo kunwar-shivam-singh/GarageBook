@@ -29,6 +29,19 @@ export default function Navigation({ garageName }: NavigationProps) {
     }
   };
 
+  const handleDrawerNavigation = (e: React.MouseEvent<HTMLAnchorElement>, href: string) => {
+    e.preventDefault();
+    setMobileDrawerOpen(false);
+    if (typeof window !== 'undefined' && window.history.state?.drawerOpen) {
+      window.history.back();
+      setTimeout(() => {
+        router.push(href);
+      }, 80);
+    } else {
+      router.push(href);
+    }
+  };
+
   const handleDrawerTouchStart = (e: React.TouchEvent) => {
     drawerTouchStartX.current = e.touches[0].clientX;
   };
@@ -128,23 +141,20 @@ export default function Navigation({ garageName }: NavigationProps) {
   ];
 
   const drawerLinks = [
-    { label: 'Dashboard', href: '/dashboard', icon: Home },
+    { label: 'Dashboard', href: '/', icon: Home },
     { label: 'New Entry', href: '/entry', icon: PlusCircle },
+    { label: 'Open Services', href: '/queue', icon: Wrench },
     { label: 'Search', href: '/search', icon: Search },
-    { label: 'Queue', href: '/queue', icon: Wrench },
     { label: 'Reports', href: '/reports', icon: BookOpen },
-    { label: 'Customers', href: '/customers', icon: Users },
-    { label: 'Bills', href: '/bills', icon: FileText },
+    { label: 'Recent Bills', href: '/bills', icon: FileText },
     { label: 'Follow-ups', href: '/followups', icon: Clock },
-    { label: 'Imports', href: '/imports', icon: Upload },
+    { label: 'Import Dues', href: '/imports', icon: Upload },
     { label: 'Settings', href: '/settings', icon: Settings },
-    { label: 'Help', href: '/help', icon: HelpCircle },
   ];
 
   const isDrawerActive = (href: string) => {
-    if (href === '/dashboard') return pathname === '/';
+    if (href === '/') return pathname === '/';
     if (href === '/entry') return pathname.startsWith('/entry');
-    if (href === '/customers') return pathname === '/search' || pathname.startsWith('/customer');
     return pathname === href || pathname.startsWith(href);
   };
 
@@ -268,7 +278,7 @@ export default function Navigation({ garageName }: NavigationProps) {
                   <Link
                     key={item.href}
                     href={item.href}
-                    onClick={closeDrawer}
+                    onClick={(e) => handleDrawerNavigation(e, item.href)}
                     className={`flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-bold transition-colors ${
                       active 
                         ? 'bg-blue-50 text-blue-600' 

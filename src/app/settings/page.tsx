@@ -159,6 +159,7 @@ export default function SettingsPage() {
   // Help & Support Form
   const [supportMessage, setSupportMessage] = useState('');
   const [supportType, setSupportType] = useState('Feedback');
+  const [selectedGuide, setSelectedGuide] = useState<string | null>(null);
 
   // Load configuration details on mount
   useEffect(() => {
@@ -1088,35 +1089,72 @@ export default function SettingsPage() {
 
                   {/* 11. HELP & SUPPORT */}
                   {activeSection === 'help' && (
-                    <form onSubmit={handleSendSupport} className="space-y-4">
+                    <div className="space-y-4">
                       <div className="bg-slate-50 border border-slate-200 rounded-xl p-4 space-y-2">
                         <h4 className="font-bold text-slate-800 text-xs">User Guide Quick Links</h4>
-                        <ul className="text-xs text-blue-600 font-bold space-y-1.5">
-                          <li><a href="#" className="hover:underline flex items-center gap-1">→ How to register a new vehicle intake?</a></li>
-                          <li><a href="#" className="hover:underline flex items-center gap-1">→ Managing partial payments clearance</a></li>
-                          <li><a href="#" className="hover:underline flex items-center gap-1">→ Understanding mechanics salary calculations</a></li>
-                        </ul>
+                        <div className="flex flex-col text-xs text-blue-600 font-bold space-y-2">
+                          <button
+                            type="button"
+                            onClick={() => setSelectedGuide(selectedGuide === 'intake' ? null : 'intake')}
+                            className="hover:underline flex items-center gap-1 text-left cursor-pointer text-blue-600 font-bold"
+                          >
+                            → How to register a new vehicle intake?
+                          </button>
+                          {selectedGuide === 'intake' && (
+                            <p className="text-slate-650 font-medium bg-white border border-slate-150 p-2.5 rounded-lg ml-2 animate-in fade-in slide-in-from-top-1 duration-150 leading-relaxed">
+                              Go to the <strong>New Entry</strong> page from the menu drawer. Fill in customer phone & name. Enter bike details (brand, model, plate number). Select customer complaints, collect optional advance payment, and click <strong>Confirm & Save</strong> to place it directly in the active services queue.
+                            </p>
+                          )}
+
+                          <button
+                            type="button"
+                            onClick={() => setSelectedGuide(selectedGuide === 'partial' ? null : 'partial')}
+                            className="hover:underline flex items-center gap-1 text-left cursor-pointer text-blue-600 font-bold"
+                          >
+                            → Managing partial payments clearance
+                          </button>
+                          {selectedGuide === 'partial' && (
+                            <p className="text-slate-650 font-medium bg-white border border-slate-150 p-2.5 rounded-lg ml-2 animate-in fade-in slide-in-from-top-1 duration-150 leading-relaxed">
+                              Locate the job inside <strong>Bills History</strong> or <strong>Customer Profile</strong>. Tap the payment status indicator. In the popup modal clearance card, select the payment mode (UPI/Cash), enter the clearance amount, add optional notes, and click <strong>Record Payment</strong>.
+                            </p>
+                          )}
+
+                          <button
+                            type="button"
+                            onClick={() => setSelectedGuide(selectedGuide === 'salary' ? null : 'salary')}
+                            className="hover:underline flex items-center gap-1 text-left cursor-pointer text-blue-600 font-bold"
+                          >
+                            → Understanding mechanics salary calculations
+                          </button>
+                          {selectedGuide === 'salary' && (
+                            <p className="text-slate-650 font-medium bg-white border border-slate-200 p-2.5 rounded-lg ml-2 animate-in fade-in slide-in-from-top-1 duration-150 leading-relaxed">
+                              Assign a mechanic to the job card inside the <strong>Open Services Queue</strong>. Record completed service/labor tasks with designated mechanic commission rates. The <strong>Reports</strong> page collects and updates payouts automatically.
+                            </p>
+                          )}
+                        </div>
                       </div>
 
-                      <div className="pt-2">
-                        <label className="block text-xs font-bold text-slate-500 mb-1">Issue Category</label>
-                        <select value={supportType} onChange={(e) => setSupportType(e.target.value)} className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-xs font-bold focus:outline-none">
-                          <option value="Bug">Report a Bug / Error</option>
-                          <option value="Feature">Request a New Feature</option>
-                          <option value="Feedback">Send General Feedback</option>
-                          <option value="Contact">Contact Developer</option>
-                        </select>
-                      </div>
+                      <form onSubmit={handleSendSupport} className="space-y-4">
+                        <div>
+                          <label className="block text-xs font-bold text-slate-500 mb-1">Issue Category</label>
+                          <select value={supportType} onChange={(e) => setSupportType(e.target.value)} className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-xs font-bold focus:outline-none">
+                            <option value="Bug">Report a Bug / Error</option>
+                            <option value="Feature">Request a New Feature</option>
+                            <option value="Feedback">Send General Feedback</option>
+                            <option value="Contact">Contact Developer</option>
+                          </select>
+                        </div>
 
-                      <div>
-                        <label className="block text-xs font-bold text-slate-500 mb-1">Message Description</label>
-                        <textarea required value={supportMessage} onChange={(e) => setSupportMessage(e.target.value)} rows={3} placeholder="Please provide instructions/details for the developer..." className="w-full rounded-xl border border-slate-300 px-3 py-2 text-xs focus:border-blue-500 focus:outline-none resize-none" />
-                      </div>
+                        <div>
+                          <label className="block text-xs font-bold text-slate-500 mb-1">Message Description</label>
+                          <textarea required value={supportMessage} onChange={(e) => setSupportMessage(e.target.value)} rows={3} placeholder="Please provide instructions/details for the developer..." className="w-full rounded-xl border border-slate-300 px-3 py-2 text-xs focus:border-blue-500 focus:outline-none resize-none" />
+                        </div>
 
-                      <button type="submit" className="w-full bg-blue-600 hover:bg-blue-700 text-white py-3 rounded-xl text-xs font-extrabold flex items-center justify-center gap-1.5 shadow-sm active:scale-98 transition-transform">
-                        Send Message
-                      </button>
-                    </form>
+                        <button type="submit" className="w-full bg-blue-600 hover:bg-blue-700 text-white py-3 rounded-xl text-xs font-extrabold flex items-center justify-center gap-1.5 shadow-sm active:scale-98 transition-transform">
+                          Send Message
+                        </button>
+                      </form>
+                    </div>
                   )}
 
                   {/* 12. ABOUT GARAGEBOOK */}
