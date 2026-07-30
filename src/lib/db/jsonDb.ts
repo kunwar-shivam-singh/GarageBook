@@ -3,7 +3,8 @@ import path from 'path';
 import { 
   GarageSettings, Customer, Vehicle, Bill, BillItem, PartSuggestion, 
   CreateBillInput, UpdateBillInput, Mechanic, Payment, Service, 
-  ServiceSuggestion, Advance, JobTimer, Followup, ManualImport
+  ServiceSuggestion, Advance, JobTimer, Followup, ManualImport, ServiceJob,
+  VehicleSuggestion, ComplaintSuggestion
 } from './types';
 
 const DB_DIR = path.join(process.cwd(), 'data');
@@ -24,6 +25,9 @@ interface Schema {
   timers: (JobTimer & { garageId: string })[];
   followups: (Followup & { garageId: string })[];
   manualImports: (ManualImport & { garageId: string })[];
+  serviceJobs: (ServiceJob & { garageId: string })[];
+  vehicleSuggestions: (VehicleSuggestion & { garageId: string })[];
+  complaintSuggestions: (ComplaintSuggestion & { garageId: string })[];
 }
 
 const DEFAULT_SETTINGS = (garageId: string): GarageSettings => ({
@@ -91,6 +95,7 @@ function readDb(garageId: string = 'demo-garage-id'): Schema {
     if (!parsed.timers) parsed.timers = [];
     if (!parsed.followups) parsed.followups = [];
     if (!parsed.manualImports) parsed.manualImports = [];
+    if (!parsed.serviceJobs) parsed.serviceJobs = [];
     
     return parsed;
   } catch (error) {
@@ -109,7 +114,107 @@ function writeDb(data: Schema): void {
 }
 
 // Local Trigger Simulator
-function recalculateBillTotalsLocal(db: Schema, billId: string, garageId: string) {
+function recalculateBillTotalsLocal(db: Schema, billId: string | null | undefined, garageId: string) {
+  if (!billId) return;
+
+  const jobIdx = db.serviceJobs?.findIndex(j => j.id === billId && j.garageId === garageId);
+  if (jobIdx !== undefined && jobIdx !== -1) {
+    const job = db.serviceJobs[jobIdx];
+
+    const parts = db.billItems.filter(item => item.jobId === billId && item.garageId === garageId);
+    let partsTotal = 0;
+    let partsDiscount = 0;
+
+    parts.forEach(item => {
+      const baseVal = Number(item.unitPrice || 0) * Number(item.quantity || 1);
+      let discVal = 0;
+      if (item.discountType === 'PERCENT') {
+        const discPct = Number(item.discountValue || item.discountPercentage || 0);
+        discVal = Math.round(baseVal * (discPct / 100));
+        item.discountPercentage = discPct;
+      } else if (item.discountType === 'FLAT') {
+        discVal = Number(item.discountValue || 0);
+        item.discountPercentage = baseVal > 0 ? Math.round((discVal / baseVal) * 100) : 0;
+      } else {
+        const discPct = Number(item.discountPercentage || 0);
+        discVal = Math.round(baseVal * (discPct / 100));
+        item.discountType = 'PERCENT';
+        item.discountValue = discPct;
+      }
+      item.discountAmount = discVal;
+      item.finalPrice = baseVal - discVal;
+      item.price = item.finalPrice;
+      partsTotal += baseVal;
+      partsDiscount += discVal;
+    });
+
+    const services = db.services.filter(s => s.jobId === billId && s.garageId === garageId);
+    let labourTotal = 0;
+    let labourDiscount = 0;
+
+    services.forEach(s => {
+      const baseVal = Number(s.labourCharge || 0);
+      let discVal = 0;
+      if (s.discountType === 'PERCENT') {
+        const discPct = Number(s.discountValue || 0);
+        discVal = Math.round(baseVal * (discPct / 100));
+      } else if (s.discountType === 'FLAT') {
+        discVal = Number(s.discountValue || s.discount || 0);
+      } else {
+        discVal = Number(s.discount || 0);
+        s.discountType = 'FLAT';
+        s.discountValue = discVal;
+      }
+      s.discount = discVal;
+      s.finalCharge = Math.max(0, baseVal - discVal);
+      labourTotal += baseVal;
+      labourDiscount += discVal;
+    });
+
+    const payments = db.payments.filter(p => p.jobId === billId && p.garageId === garageId);
+    const totalPayments = payments.reduce((sum, p) => sum + Number(p.amount), 0);
+
+    const advanceReceived = payments
+      .filter(p => p.notes === 'Advance' || p.notes === 'Advance payment')
+      .reduce((sum, p) => sum + Number(p.amount), 0);
+
+    job.partsTotal = partsTotal;
+    job.partsDiscount = partsDiscount;
+    job.labourTotal = labourTotal;
+    job.labourDiscount = labourDiscount;
+    job.advanceReceived = advanceReceived;
+    job.receivedAmount = totalPayments;
+    job.labour = Math.max(0, labourTotal - labourDiscount);
+
+    const partsNet = partsTotal - partsDiscount;
+    const labourNet = labourTotal - labourDiscount;
+    const subtotal = partsNet + labourNet;
+
+    let overallDiscountAmount = 0;
+    if (job.overallDiscountType === 'PERCENT') {
+      const discPct = Number(job.overallDiscountValue || 0);
+      overallDiscountAmount = Math.round(subtotal * (discPct / 100));
+    } else {
+      overallDiscountAmount = Number(job.overallDiscountValue || job.overallDiscount || 0);
+      job.overallDiscountType = 'FLAT';
+      job.overallDiscountValue = overallDiscountAmount;
+    }
+
+    job.overallDiscount = overallDiscountAmount;
+    const prevDue = Number(job.previousDueAdded || 0);
+    job.total = Math.max(0, subtotal - overallDiscountAmount + prevDue);
+    job.remainingAmount = Math.max(0, job.total - job.receivedAmount);
+
+    if (job.receivedAmount >= job.total && job.total > 0) {
+      job.paymentStatus = 'PAID';
+    } else if (job.receivedAmount > 0) {
+      job.paymentStatus = 'PARTIAL';
+    } else {
+      job.paymentStatus = 'PENDING';
+    }
+    return;
+  }
+
   const billIndex = db.bills.findIndex(b => b.id === billId && b.garageId === garageId);
   if (billIndex === -1) return;
 
@@ -528,6 +633,9 @@ function seedInitialData(garageId: string): Schema {
     timers,
     followups,
     manualImports,
+    serviceJobs: [],
+    vehicleSuggestions: [],
+    complaintSuggestions: [],
   };
 }
 
@@ -544,7 +652,7 @@ export const jsonDb = {
     return db.mechanics.filter(m => m.garageId === garageId);
   },
 
-  createMechanic: async (garageId: string, name: string, workType: 'Salary' | 'Independent' = 'Salary', commissionRate: number = 0): Promise<Mechanic> => {
+  createMechanic: async (garageId: string, name: string, workType: 'Salary' | 'Independent' = 'Salary', commissionRate: number = 0, salary: number = 0): Promise<Mechanic> => {
     const db = readDb(garageId);
     const cleanName = name.trim();
     const existing = db.mechanics.find(m => m.name.toLowerCase() === cleanName.toLowerCase() && m.garageId === garageId);
@@ -556,20 +664,22 @@ export const jsonDb = {
       name: cleanName,
       createdAt: new Date().toISOString(),
       workType,
-      commissionRate
+      commissionRate,
+      salary
     };
     db.mechanics.push(newMech);
     writeDb(db);
     return newMech;
   },
 
-  updateMechanic: async (garageId: string, id: string, name: string, workType?: 'Salary' | 'Independent', commissionRate?: number): Promise<Mechanic> => {
+  updateMechanic: async (garageId: string, id: string, name: string, workType?: 'Salary' | 'Independent', commissionRate?: number, salary?: number): Promise<Mechanic> => {
     const db = readDb(garageId);
     const idx = db.mechanics.findIndex(m => m.id === id && m.garageId === garageId);
     if (idx === -1) throw new Error('Mechanic not found');
     db.mechanics[idx].name = name.trim();
     if (workType) db.mechanics[idx].workType = workType;
     if (commissionRate !== undefined) db.mechanics[idx].commissionRate = commissionRate;
+    if (salary !== undefined) db.mechanics[idx].salary = salary;
     writeDb(db);
     return db.mechanics[idx];
   },
@@ -669,6 +779,66 @@ export const jsonDb = {
   // Job Timer Actions State Machine
   logTimerAction: async (garageId: string, billId: string, action: 'START' | 'PAUSE' | 'RESUME' | 'COMPLETE'): Promise<Bill> => {
     const db = readDb(garageId);
+    
+    // Check if it is a Service Job
+    const jobIdx = db.serviceJobs?.findIndex(j => j.id === billId && j.garageId === garageId);
+    if (jobIdx !== undefined && jobIdx !== -1) {
+      const job = db.serviceJobs[jobIdx];
+      const timestamp = new Date().toISOString();
+
+      db.timers.push({
+        id: 'timer_' + generateUuid(),
+        garageId,
+        jobId: billId,
+        action,
+        timestamp,
+      });
+
+      const lastActionTime = job.lastTimerActionAt ? new Date(job.lastTimerActionAt).getTime() : new Date().getTime();
+      const diffSeconds = Math.max(0, Math.floor((new Date(timestamp).getTime() - lastActionTime) / 1000));
+
+      if (action === 'START') {
+        job.timerState = 'RUNNING';
+        job.jobStartTime = timestamp;
+        job.jobStatus = 'Work Started';
+        job.lastTimerActionAt = timestamp;
+      } else if (action === 'PAUSE') {
+        if (job.timerState === 'RUNNING') {
+          job.actualWorkingDuration = (job.actualWorkingDuration || 0) + diffSeconds;
+        }
+        job.timerState = 'PAUSED';
+        job.jobStatus = 'Waiting for Parts';
+        job.lastTimerActionAt = timestamp;
+      } else if (action === 'RESUME') {
+        if (job.timerState === 'PAUSED') {
+          job.pauseDuration = (job.pauseDuration || 0) + diffSeconds;
+        }
+        job.timerState = 'RUNNING';
+        job.jobStatus = 'Work Started';
+        job.lastTimerActionAt = timestamp;
+      } else if (action === 'COMPLETE') {
+        if (job.timerState === 'RUNNING') {
+          job.actualWorkingDuration = (job.actualWorkingDuration || 0) + diffSeconds;
+        } else if (job.timerState === 'PAUSED') {
+          job.pauseDuration = (job.pauseDuration || 0) + diffSeconds;
+        }
+        job.timerState = 'COMPLETED';
+        job.jobEndTime = timestamp;
+        job.jobStatus = 'Completed';
+        job.totalWorkingTime = (job.actualWorkingDuration || 0) + (job.pauseDuration || 0);
+        job.lastTimerActionAt = timestamp;
+      }
+
+      db.services.filter(s => s.jobId === billId && s.garageId === garageId).forEach(s => {
+        s.workingTime = job.actualWorkingDuration;
+        s.startTime = job.jobStartTime;
+        s.endTime = job.jobEndTime;
+      });
+
+      writeDb(db);
+      return job as unknown as Bill;
+    }
+
     const billIdx = db.bills.findIndex(b => b.id === billId && b.garageId === garageId);
     if (billIdx === -1) throw new Error('Bill not found');
     const bill = db.bills[billIdx];
@@ -804,7 +974,7 @@ export const jsonDb = {
     return db.customers.find(c => c.phone === phone.trim() && c.garageId === garageId) || null;
   },
 
-  getCustomerOutstandingDues: async (garageId: string, phone: string): Promise<{ totalDues: number; unpaidBills: any[] }> => {
+  getCustomerOutstandingDues: async (garageId: string, phone: string): Promise<{ totalDues: number; unpaidBills: any[]; followupDate?: string | null }> => {
     const db = readDb(garageId);
     const customer = db.customers.find(c => c.phone === phone.trim() && c.garageId === garageId);
     if (!customer) return { totalDues: 0, unpaidBills: [] };
@@ -828,12 +998,25 @@ export const jsonDb = {
         isImport: true,
       }));
 
+    const customerBillIds = db.bills.filter(b => b.customerId === customer.id && b.garageId === garageId).map(b => b.id);
+    const customerJobIds = (db.serviceJobs || []).filter(j => j.customerId === customer.id && j.garageId === garageId).map(j => j.id);
+
+    const followup = (db.followups || [])
+      .filter(f => {
+        const isMatch = (f.billId && customerBillIds.includes(f.billId)) || 
+                        (f.jobId && customerJobIds.includes(f.jobId));
+        return isMatch && f.status === 'PENDING' && f.garageId === garageId;
+      })
+      .sort((a, b) => new Date(a.followupDate).getTime() - new Date(b.followupDate).getTime())[0];
+    const followupDate = followup ? followup.followupDate : null;
+
     const allUnpaid = [...unpaidBills, ...unpaidImports];
     const totalDues = allUnpaid.reduce((sum, item) => sum + item.remainingAmount, 0);
 
     return {
       totalDues,
       unpaidBills: allUnpaid,
+      followupDate,
     };
   },
 
@@ -942,6 +1125,28 @@ export const jsonDb = {
 
   getBillById: async (garageId: string, id: string): Promise<Bill | null> => {
     const db = readDb(garageId);
+    
+    // Check serviceJobs first
+    const job = db.serviceJobs?.find(j => j.id === id && j.garageId === garageId);
+    if (job) {
+      return {
+        ...job,
+        invoiceNumber: '',
+        customer: db.customers.find(c => c.id === job.customerId),
+        vehicle: db.vehicles.find(v => v.id === job.vehicleId),
+        items: db.billItems.filter(item => item.jobId === job.id),
+        mechanic: db.mechanics.find(m => m.id === job.mechanicId),
+        payments: db.payments.filter(p => p.jobId === job.id),
+        services: db.services.filter(s => s.jobId === job.id).map(s => ({
+          ...s,
+          mechanic: db.mechanics.find(m => m.id === s.mechanicId)
+        })),
+        advances: db.advances.filter(a => a.jobId === job.id),
+        timers: db.timers.filter(t => t.jobId === job.id),
+        followups: db.followups.filter(f => f.jobId === job.id),
+      } as unknown as Bill;
+    }
+
     const bill = db.bills.find(b => b.id === id && b.garageId === garageId);
     if (!bill) return null;
     return {
@@ -1338,6 +1543,17 @@ export const jsonDb = {
 
   updateBill: async (garageId: string, id: string, input: UpdateBillInput): Promise<Bill> => {
     const db = readDb(garageId);
+    
+    const isJob = db.serviceJobs?.some(j => j.id === id && j.garageId === garageId);
+    if (isJob) {
+      if (input.jobStatus === 'Delivered') {
+        await jsonDb.updateServiceJob(garageId, id, input);
+        return await jsonDb.generateBillFromJob(garageId, id);
+      } else {
+        return await jsonDb.updateServiceJob(garageId, id, input) as unknown as Bill;
+      }
+    }
+
     const billIdx = db.bills.findIndex(b => b.id === id && b.garageId === garageId);
     if (billIdx === -1) throw new Error('Bill not found.');
     const oldBill = db.bills[billIdx];
@@ -1559,11 +1775,16 @@ export const jsonDb = {
       db.bills
         .filter(b => b.mechanicId === mech.id && b.garageId === garageId)
         .forEach(b => matchedCustomerIds.add(b.customerId));
+      db.serviceJobs
+        ?.filter(j => j.mechanicId === mech.id && j.garageId === garageId)
+        .forEach(j => matchedCustomerIds.add(j.customerId));
     });
 
     matchedBillItems.forEach(item => {
       const bill = db.bills.find(b => b.id === item.billId && b.garageId === garageId);
       if (bill) matchedCustomerIds.add(bill.customerId);
+      const job = db.serviceJobs?.find(j => j.id === item.jobId && j.garageId === garageId);
+      if (job) matchedCustomerIds.add(job.customerId);
     });
 
     const results = Array.from(matchedCustomerIds).map(cid => {
@@ -1577,13 +1798,25 @@ export const jsonDb = {
           vehicle: customerVehicles.find(v => v.id === b.vehicleId),
           mechanic: db.mechanics.find(m => m.id === b.mechanicId),
           payments: db.payments.filter(p => p.billId === b.id),
-        }))
+        }));
+
+      const customerJobs = (db.serviceJobs || [])
+        .filter(j => j.customerId === cid && j.garageId === garageId)
+        .map(j => ({
+          ...j,
+          invoiceNumber: '',
+          vehicle: customerVehicles.find(v => v.id === j.vehicleId),
+          mechanic: db.mechanics.find(m => m.id === j.mechanicId),
+          payments: db.payments.filter(p => p.jobId === j.id),
+        }));
+
+      const combinedBills = [...customerJobs, ...customerBills]
         .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
 
       return {
         customer,
         vehicles: customerVehicles,
-        bills: customerBills,
+        bills: combinedBills as unknown as Bill[],
       };
     });
 
@@ -1628,5 +1861,723 @@ export const jsonDb = {
     db.serviceSuggestions = db.serviceSuggestions.filter(s => !(s.id === id && s.garageId === garageId));
     writeDb(db);
     return true;
+  },
+
+  getServiceJobs: async (garageId: string): Promise<ServiceJob[]> => {
+    const db = readDb(garageId);
+    return (db.serviceJobs || [])
+      .filter(j => j.garageId === garageId)
+      .map(j => ({
+        ...j,
+        customer: db.customers.find(c => c.id === j.customerId),
+        vehicle: db.vehicles.find(v => v.id === j.vehicleId),
+        items: db.billItems.filter(item => item.jobId === j.id),
+        mechanic: db.mechanics.find(m => m.id === j.mechanicId),
+        payments: db.payments.filter(p => p.jobId === j.id),
+        services: db.services.filter(s => s.jobId === j.id).map(s => ({
+          ...s,
+          mechanic: db.mechanics.find(m => m.id === s.mechanicId)
+        })),
+        advances: db.advances.filter(a => a.jobId === j.id),
+        timers: db.timers.filter(t => t.jobId === j.id),
+        followups: db.followups.filter(f => f.jobId === j.id),
+      }));
+  },
+
+  getServiceJobById: async (garageId: string, id: string): Promise<ServiceJob | null> => {
+    const db = readDb(garageId);
+    const job = db.serviceJobs?.find(j => j.id === id && j.garageId === garageId);
+    if (!job) return null;
+    return {
+      ...job,
+      customer: db.customers.find(c => c.id === job.customerId),
+      vehicle: db.vehicles.find(v => v.id === job.vehicleId),
+      items: db.billItems.filter(item => item.jobId === job.id),
+      mechanic: db.mechanics.find(m => m.id === job.mechanicId),
+      payments: db.payments.filter(p => p.jobId === job.id),
+      services: db.services.filter(s => s.jobId === job.id).map(s => ({
+        ...s,
+        mechanic: db.mechanics.find(m => m.id === s.mechanicId)
+      })),
+      advances: db.advances.filter(a => a.jobId === job.id),
+      timers: db.timers.filter(t => t.jobId === job.id),
+      followups: db.followups.filter(f => f.jobId === job.id),
+    };
+  },
+
+  createServiceJob: async (garageId: string, input: CreateBillInput): Promise<ServiceJob> => {
+    const db = readDb(garageId);
+    const { 
+      customerId, customerName, customerPhone, 
+      vehicleId, vehicleNumber, vehicleBrand, vehicleModel,
+      date, labour, notes, paymentStatus, items: inputItems,
+      mechanicId, mechanicName, payments: initialPayments,
+      expectedPaymentDate, followupReminderDate, paymentNotes,
+      jobStatus, workRequested, services: inputServices, advances: inputAdvances,
+      overallDiscount, previousDueAdded, previousDueBillIds,
+      overallDiscountType, overallDiscountValue,
+      serviceNotes, showServiceNotes
+    } = input;
+    
+    let customer: Customer;
+    if (customerId) {
+      customer = db.customers.find(c => c.id === customerId && c.garageId === garageId)!;
+    } else if (customerPhone && customerName) {
+      const existing = db.customers.find(c => c.phone === customerPhone.trim() && c.garageId === garageId);
+      if (existing) {
+        customer = existing;
+      } else {
+        customer = {
+          id: 'cust_' + generateUuid(),
+          name: customerName.trim(),
+          phone: customerPhone.trim(),
+          createdAt: new Date().toISOString(),
+        };
+        db.customers.push({ ...customer, garageId });
+      }
+    } else {
+      throw new Error('Customer information missing.');
+    }
+
+    let vehicle: Vehicle;
+    if (vehicleId) {
+      vehicle = db.vehicles.find(v => v.id === vehicleId && v.garageId === garageId)!;
+    } else if (vehicleNumber && vehicleBrand && vehicleModel) {
+      const cleanNumber = vehicleNumber.toUpperCase().replace(/\s+/g, '-').trim();
+      const existing = db.vehicles.find(v => v.vehicleNumber === cleanNumber && v.garageId === garageId);
+      if (existing) {
+        vehicle = existing;
+      } else {
+        vehicle = {
+          id: 'veh_' + generateUuid(),
+          customerId: customer.id,
+          vehicleNumber: cleanNumber,
+          brand: vehicleBrand.trim(),
+          model: vehicleModel.trim(),
+          createdAt: new Date().toISOString(),
+        };
+        db.vehicles.push({ ...vehicle, garageId });
+      }
+    } else {
+      throw new Error('Vehicle information missing.');
+    }
+
+    if (vehicle) {
+      const cleanB = vehicle.brand.trim();
+      const cleanM = vehicle.model.trim();
+      if (!db.vehicleSuggestions) db.vehicleSuggestions = [];
+      const hasSug = db.vehicleSuggestions.some(
+        s => s.garageId === garageId && 
+        s.brand.toLowerCase() === cleanB.toLowerCase() && 
+        s.model.toLowerCase() === cleanM.toLowerCase()
+      );
+      if (!hasSug) {
+        db.vehicleSuggestions.push({
+          id: 'veh_sug_' + generateUuid(),
+          garageId,
+          brand: cleanB,
+          model: cleanM
+        });
+      }
+    }
+
+    if (workRequested) {
+      const complaints = workRequested.split(',').map((s: string) => s.trim()).filter(Boolean);
+      if (!db.complaintSuggestions) db.complaintSuggestions = [];
+      complaints.forEach((comp: string) => {
+        const hasSug = db.complaintSuggestions.some(
+          s => s.garageId === garageId && 
+          s.name.toLowerCase() === comp.toLowerCase()
+        );
+        if (!hasSug) {
+          db.complaintSuggestions.push({
+            id: 'comp_sug_' + generateUuid(),
+            garageId,
+            name: comp
+          });
+        }
+      });
+    }
+
+    const existingActiveJob = db.serviceJobs?.find(j => 
+      j.garageId === garageId && 
+      j.vehicleId === vehicle.id && 
+      j.jobStatus !== 'Delivered' && 
+      j.jobStatus !== 'Cancelled'
+    );
+    if (existingActiveJob) {
+      const activeInfo = await jsonDb.getServiceJobById(garageId, existingActiveJob.id);
+      if (activeInfo) return activeInfo;
+    }
+
+    let resolvedMechanicId: string | null = mechanicId || null;
+    if (mechanicName && mechanicName.trim()) {
+      const cleanName = mechanicName.trim();
+      const existingMech = db.mechanics.find(m => m.name.toLowerCase() === cleanName.toLowerCase() && m.garageId === garageId);
+      if (existingMech) {
+        resolvedMechanicId = existingMech.id;
+      } else {
+        const newMech = {
+          id: 'mech_' + generateUuid(),
+          garageId,
+          name: cleanName,
+          createdAt: new Date().toISOString(),
+          workType: 'Salary' as const,
+          commissionRate: 0.00
+        };
+        db.mechanics.push(newMech);
+        resolvedMechanicId = newMech.id;
+      }
+    }
+
+    const jobId = 'job_' + generateUuid();
+    
+    const items: BillItem[] = [];
+    inputItems.forEach((item) => {
+      const newItem: BillItem = {
+        id: `item_${generateUuid()}`,
+        jobId,
+        name: item.name.trim(),
+        price: Number(item.finalPrice || item.unitPrice || 0),
+        quantity: Number(item.quantity || 1),
+        unitPrice: Number(item.unitPrice || 0),
+        discountPercentage: Number(item.discountPercentage || 0),
+        discountAmount: Number(item.discountAmount || 0),
+        finalPrice: Number(item.finalPrice || 0),
+        discountType: item.discountType || 'PERCENT',
+        discountValue: Number(item.discountValue || 0)
+      };
+      db.billItems.push({ ...newItem, garageId });
+      items.push(newItem);
+    });
+
+    const servicesList: Service[] = [];
+    if (inputServices && inputServices.length > 0) {
+      inputServices.forEach((s) => {
+        let servMechId = s.mechanicId || null;
+        let sWorkType = s.mechanicType || 'Salary';
+        if (s.mechanicName && s.mechanicName.trim()) {
+          const cleanMechName = s.mechanicName.trim();
+          const existingMech = db.mechanics.find(m => m.name.toLowerCase() === cleanMechName.toLowerCase() && m.garageId === garageId);
+          if (existingMech) {
+            servMechId = existingMech.id;
+            sWorkType = existingMech.workType;
+          } else {
+            const newMech = {
+              id: 'mech_' + generateUuid(),
+              garageId,
+              name: cleanMechName,
+              createdAt: new Date().toISOString(),
+              workType: 'Salary' as const,
+              commissionRate: 0.00
+            };
+            db.mechanics.push(newMech);
+            servMechId = newMech.id;
+            sWorkType = newMech.workType;
+          }
+        } else if (servMechId) {
+          const m = db.mechanics.find(mech => mech.id === servMechId);
+          if (m) sWorkType = m.workType;
+        }
+
+        const newService: Service = {
+          id: `serv_${generateUuid()}`,
+          jobId,
+          name: s.name.trim(),
+          mechanicId: servMechId,
+          labourCharge: Number(s.labourCharge || 0),
+          discount: Number(s.discount || 0),
+          finalCharge: Number(s.finalCharge || 0),
+          mechanicType: sWorkType as any,
+          commissionRate: Number(s.commissionRate || 0),
+          workingTime: Number(s.workingTime || 0),
+          startTime: s.startTime || null,
+          endTime: s.endTime || null,
+          discountType: s.discountType || 'FLAT',
+          discountValue: Number(s.discountValue || 0)
+        };
+        db.services.push({ ...newService, garageId });
+        servicesList.push(newService);
+      });
+    }
+
+    const paymentsList: Payment[] = [];
+    if (initialPayments && initialPayments.length > 0) {
+      initialPayments.forEach((p) => {
+        if (p.amount > 0) {
+          const newPayment: Payment = {
+            id: `pay_${generateUuid()}`,
+            garageId,
+            jobId,
+            paymentMethod: p.paymentMethod as any,
+            amount: Number(p.amount),
+            paymentDate: date || new Date().toISOString(),
+            notes: p.notes,
+            createdAt: new Date().toISOString(),
+          };
+          db.payments.push(newPayment);
+          paymentsList.push(newPayment);
+        }
+      });
+    }
+
+    const advancesList: Advance[] = [];
+    if (inputAdvances && inputAdvances.length > 0) {
+      inputAdvances.forEach(adv => {
+        if (adv.amount > 0) {
+          const newAdvance: Advance = {
+            id: `adv_${generateUuid()}`,
+            jobId,
+            amount: Number(adv.amount),
+            paymentMode: adv.paymentMode as any,
+            createdAt: date || new Date().toISOString(),
+          };
+          db.advances.push({ ...newAdvance, garageId });
+          advancesList.push(newAdvance);
+        }
+      });
+    }
+
+    if (paymentStatus !== 'PAID' && expectedPaymentDate) {
+      db.followups.push({
+        id: `fol_${generateUuid()}`,
+        garageId,
+        jobId,
+        followupDate: expectedPaymentDate,
+        notes: paymentNotes,
+        status: 'PENDING',
+        createdAt: new Date().toISOString(),
+      });
+    }
+
+    let partsTotal = items.reduce((sum, item) => sum + (item.finalPrice || 0), 0);
+    let partsDiscount = items.reduce((sum, item) => sum + (item.discountAmount || 0), 0);
+    let labourTotal = servicesList.reduce((sum, s) => sum + (s.finalCharge || 0), 0);
+    let labourDiscount = servicesList.reduce((sum, s) => sum + (s.discount || 0), 0);
+    let subtotal = partsTotal + labourTotal;
+    let calculatedTotal = Math.max(0, subtotal - Number(overallDiscount || 0)) + Number(previousDueAdded || 0);
+    let advSum = advancesList.reduce((sum, a) => sum + a.amount, 0);
+    let paySum = paymentsList.reduce((sum, p) => sum + p.amount, 0);
+    let recAmt = advSum + paySum;
+    let remAmt = Math.max(0, calculatedTotal - recAmt);
+
+    const newJob: ServiceJob = {
+      id: jobId,
+      vehicleId: vehicle.id,
+      customerId: customer.id,
+      date: date || new Date().toISOString(),
+      labour: Number(labour || 0),
+      total: calculatedTotal,
+      notes: notes?.trim() || '',
+      paymentStatus: paymentStatus || 'PENDING',
+      createdAt: new Date().toISOString(),
+      
+      mechanicId: resolvedMechanicId,
+      receivedAmount: recAmt,
+      remainingAmount: remAmt,
+      expectedPaymentDate: expectedPaymentDate || null,
+      followupReminderDate: followupReminderDate || null,
+      paymentNotes: paymentNotes || null,
+
+      jobStatus: jobStatus || 'Waiting',
+      workRequested: workRequested?.trim() || '',
+      jobStartTime: null,
+      jobEndTime: null,
+      totalWorkingTime: 0,
+      pauseDuration: 0,
+      actualWorkingDuration: 0,
+      timerState: 'STOPPED',
+      lastTimerActionAt: null,
+
+      partsTotal,
+      partsDiscount,
+      labourTotal,
+      labourDiscount,
+      overallDiscount: Number(overallDiscount || 0),
+      advanceReceived: advSum,
+      previousDueAdded: Number(previousDueAdded || 0),
+      previousDueBillIds: previousDueBillIds || [],
+
+      overallDiscountType: overallDiscountType || 'FLAT',
+      overallDiscountValue: Number(overallDiscountValue || 0),
+      serviceNotes: serviceNotes || '',
+      showServiceNotes: showServiceNotes !== undefined ? showServiceNotes : true
+    };
+
+    if (!db.serviceJobs) db.serviceJobs = [];
+    db.serviceJobs.push({ ...newJob, garageId });
+    writeDb(db);
+
+    return {
+      ...newJob,
+      customer,
+      vehicle,
+      items,
+      services: servicesList,
+      payments: paymentsList,
+      advances: advancesList,
+      timers: [],
+      followups: []
+    };
+  },
+
+  updateServiceJob: async (garageId: string, id: string, input: UpdateBillInput): Promise<ServiceJob> => {
+    const db = readDb(garageId);
+    const jobIdx = db.serviceJobs.findIndex(j => j.id === id && j.garageId === garageId);
+    if (jobIdx === -1) throw new Error('Service Job not found.');
+    const oldJob = db.serviceJobs[jobIdx];
+
+    const { 
+      date, labour, notes, paymentStatus, items: inputItems,
+      mechanicId, mechanicName, expectedPaymentDate, followupReminderDate, paymentNotes,
+      jobStatus, workRequested, services: inputServices, advances: inputAdvances,
+      overallDiscount, previousDueAdded, previousDueBillIds,
+      overallDiscountType, overallDiscountValue,
+      serviceNotes, showServiceNotes
+    } = input;
+
+    db.billItems = db.billItems.filter(item => !(item.jobId === id && item.garageId === garageId));
+    db.services = db.services.filter(s => !(s.jobId === id && s.garageId === garageId));
+    db.advances = db.advances.filter(a => !(a.jobId === id && a.garageId === garageId));
+    db.followups = db.followups.filter(f => !(f.jobId === id && f.garageId === garageId));
+
+    const items: BillItem[] = [];
+    if (inputItems) {
+      inputItems.forEach((item) => {
+        const newItem: BillItem = {
+          id: `item_${generateUuid()}`,
+          jobId: id,
+          name: item.name.trim(),
+          price: Number(item.finalPrice || item.unitPrice || 0),
+          quantity: Number(item.quantity || 1),
+          unitPrice: Number(item.unitPrice || 0),
+          discountPercentage: Number(item.discountPercentage || 0),
+          discountAmount: Number(item.discountAmount || 0),
+          finalPrice: Number(item.finalPrice || 0),
+          discountType: item.discountType || 'PERCENT',
+          discountValue: Number(item.discountValue || 0)
+        };
+        db.billItems.push({ ...newItem, garageId });
+        items.push(newItem);
+      });
+    }
+
+    const servicesList: Service[] = [];
+    if (inputServices && inputServices.length > 0) {
+      inputServices.forEach((s) => {
+        let servMechId = s.mechanicId || null;
+        let sWorkType = s.mechanicType || 'Salary';
+        if (s.mechanicName && s.mechanicName.trim()) {
+          const cleanMechName = s.mechanicName.trim();
+          const existingMech = db.mechanics.find(m => m.name.toLowerCase() === cleanMechName.toLowerCase() && m.garageId === garageId);
+          if (existingMech) {
+            servMechId = existingMech.id;
+            sWorkType = existingMech.workType;
+          } else {
+            const newMech = {
+              id: 'mech_' + generateUuid(),
+              garageId,
+              name: cleanMechName,
+              createdAt: new Date().toISOString(),
+              workType: 'Salary' as const,
+              commissionRate: 0.00
+            };
+            db.mechanics.push(newMech);
+            servMechId = newMech.id;
+            sWorkType = newMech.workType;
+          }
+        } else if (servMechId) {
+          const m = db.mechanics.find(mech => mech.id === servMechId);
+          if (m) sWorkType = m.workType;
+        }
+
+        const newService: Service = {
+          id: `serv_${generateUuid()}`,
+          jobId: id,
+          name: s.name.trim(),
+          mechanicId: servMechId,
+          labourCharge: Number(s.labourCharge || 0),
+          discount: Number(s.discount || 0),
+          finalCharge: Number(s.finalCharge || 0),
+          mechanicType: sWorkType as any,
+          commissionRate: Number(s.commissionRate || 0),
+          workingTime: Number(s.workingTime || 0),
+          startTime: s.startTime || null,
+          endTime: s.endTime || null,
+          discountType: s.discountType || 'FLAT',
+          discountValue: Number(s.discountValue || 0)
+        };
+        db.services.push({ ...newService, garageId });
+        servicesList.push(newService);
+      });
+    }
+
+    if (inputAdvances && inputAdvances.length > 0) {
+      inputAdvances.forEach(adv => {
+        if (adv.amount > 0) {
+          db.advances.push({
+            id: `adv_${generateUuid()}`,
+            garageId,
+            jobId: id,
+            amount: Number(adv.amount),
+            paymentMode: adv.paymentMode as any,
+            createdAt: date || new Date().toISOString(),
+          });
+        }
+      });
+    }
+
+    let resolvedMechanicId: string | null = mechanicId || null;
+    if (mechanicName && mechanicName.trim()) {
+      const cleanName = mechanicName.trim();
+      const existingMech = db.mechanics.find(m => m.name.toLowerCase() === cleanName.toLowerCase() && m.garageId === garageId);
+      if (existingMech) {
+        resolvedMechanicId = existingMech.id;
+      } else {
+        const newMech = {
+          id: 'mech_' + generateUuid(),
+          garageId,
+          name: cleanName,
+          createdAt: new Date().toISOString(),
+          workType: 'Salary' as const,
+          commissionRate: 0.00
+        };
+        db.mechanics.push(newMech);
+        resolvedMechanicId = newMech.id;
+      }
+    }
+
+    if (paymentStatus !== 'PAID' && expectedPaymentDate) {
+      db.followups.push({
+        id: `fol_${generateUuid()}`,
+        garageId,
+        jobId: id,
+        followupDate: expectedPaymentDate,
+        notes: paymentNotes,
+        status: 'PENDING',
+        createdAt: new Date().toISOString(),
+      });
+    }
+
+    let partsTotal = items.reduce((sum, item) => sum + (item.finalPrice || 0), 0);
+    let partsDiscount = items.reduce((sum, item) => sum + (item.discountAmount || 0), 0);
+    let labourTotal = servicesList.reduce((sum, s) => sum + (s.finalCharge || 0), 0);
+    let labourDiscount = servicesList.reduce((sum, s) => sum + (s.discount || 0), 0);
+    let subtotal = partsTotal + labourTotal;
+    let calculatedTotal = Math.max(0, subtotal - Number(overallDiscount || 0)) + Number(previousDueAdded || 0);
+    
+    let advSum = db.advances.filter(a => a.jobId === id && a.garageId === garageId).reduce((sum, a) => sum + a.amount, 0);
+    let paySum = db.payments.filter(p => p.jobId === id && p.garageId === garageId).reduce((sum, p) => sum + p.amount, 0);
+    let recAmt = advSum + paySum;
+    let remAmt = Math.max(0, calculatedTotal - recAmt);
+
+    const updatedJob: ServiceJob = {
+      ...oldJob,
+      date: date || oldJob.date,
+      labour: Number(labour || oldJob.labour || 0),
+      total: calculatedTotal,
+      notes: notes?.trim() || oldJob.notes || '',
+      paymentStatus: paymentStatus || oldJob.paymentStatus || 'PENDING',
+      mechanicId: resolvedMechanicId,
+      expectedPaymentDate: expectedPaymentDate || null,
+      followupReminderDate: followupReminderDate || null,
+      paymentNotes: paymentNotes || null,
+      jobStatus: jobStatus || oldJob.jobStatus || 'Waiting',
+      workRequested: workRequested || oldJob.workRequested || '',
+      partsTotal,
+      partsDiscount,
+      labourTotal,
+      labourDiscount,
+      overallDiscount: Number(overallDiscount || 0),
+      advanceReceived: advSum,
+      receivedAmount: recAmt,
+      remainingAmount: remAmt,
+      previousDueAdded: Number(previousDueAdded || 0),
+      previousDueBillIds: previousDueBillIds || [],
+      overallDiscountType: overallDiscountType || 'FLAT',
+      overallDiscountValue: Number(overallDiscountValue || 0),
+      serviceNotes: serviceNotes || '',
+      showServiceNotes: showServiceNotes !== undefined ? showServiceNotes : true
+    };
+
+    db.serviceJobs[jobIdx] = { ...updatedJob, garageId };
+    writeDb(db);
+
+    const saved = db.serviceJobs[jobIdx];
+    return {
+      ...saved,
+      customer: db.customers.find(c => c.id === saved.customerId),
+      vehicle: db.vehicles.find(v => v.id === saved.vehicleId),
+      items,
+      services: servicesList,
+      payments: db.payments.filter(p => p.jobId === id),
+      advances: db.advances.filter(a => a.jobId === id),
+      timers: db.timers.filter(t => t.jobId === id),
+      followups: db.followups.filter(f => f.jobId === id),
+    };
+  },
+
+  generateBillFromJob: async (garageId: string, jobId: string): Promise<Bill> => {
+    const db = readDb(garageId);
+    const job = db.serviceJobs?.find(j => j.id === jobId && j.garageId === garageId);
+    if (!job) throw new Error('Service Job not found.');
+
+    const garageBills = db.bills.filter(b => b.garageId === garageId);
+    const lastInvoiceNumber = garageBills.length > 0 
+      ? Math.max(...garageBills.map(b => {
+          const match = b.invoiceNumber.match(/GB-(\d+)/);
+          return match ? parseInt(match[1]) : 1000;
+        }))
+      : 1000;
+    const invoiceNumber = `GB-${lastInvoiceNumber + 1}`;
+    const billId = 'bill_' + generateUuid();
+
+    const newBill: Bill = {
+      id: billId,
+      vehicleId: job.vehicleId,
+      customerId: job.customerId,
+      invoiceNumber,
+      date: new Date().toISOString(),
+      labour: job.labour,
+      total: job.total,
+      notes: job.notes,
+      paymentStatus: job.paymentStatus,
+      createdAt: new Date().toISOString(),
+      mechanicId: job.mechanicId,
+      receivedAmount: job.receivedAmount,
+      remainingAmount: job.remainingAmount,
+      expectedPaymentDate: job.expectedPaymentDate,
+      followupReminderDate: job.followupReminderDate,
+      paymentNotes: job.paymentNotes,
+      jobStatus: 'Delivered',
+      workRequested: job.workRequested,
+      jobStartTime: job.jobStartTime,
+      jobEndTime: job.jobEndTime || new Date().toISOString(),
+      totalWorkingTime: job.totalWorkingTime,
+      pauseDuration: job.pauseDuration,
+      actualWorkingDuration: job.actualWorkingDuration,
+      timerState: 'COMPLETED',
+      lastTimerActionAt: new Date().toISOString(),
+      partsTotal: job.partsTotal,
+      partsDiscount: job.partsDiscount,
+      labourTotal: job.labourTotal,
+      labourDiscount: job.labourDiscount,
+      overallDiscount: job.overallDiscount,
+      advanceReceived: job.advanceReceived,
+      previousDueAdded: job.previousDueAdded,
+      previousDueBillIds: job.previousDueBillIds,
+      overallDiscountType: job.overallDiscountType,
+      overallDiscountValue: job.overallDiscountValue,
+      serviceNotes: job.serviceNotes,
+      showServiceNotes: job.showServiceNotes
+    };
+
+    db.bills.push({ ...newBill, garageId });
+
+    db.billItems.forEach(item => {
+      if (item.jobId === jobId) {
+        item.billId = billId;
+      }
+    });
+    db.services.forEach(s => {
+      if (s.jobId === jobId) {
+        s.billId = billId;
+      }
+    });
+    db.payments.forEach(p => {
+      if (p.jobId === jobId) {
+        p.billId = billId;
+      }
+    });
+    db.advances.forEach(a => {
+      if (a.jobId === jobId) {
+        a.billId = billId;
+      }
+    });
+    db.timers.forEach(t => {
+      if (t.jobId === jobId) {
+        t.billId = billId;
+      }
+    });
+    db.followups.forEach(f => {
+      if (f.jobId === jobId) {
+        f.billId = billId;
+      }
+    });
+
+    db.serviceJobs = db.serviceJobs.filter(j => j.id !== jobId);
+    writeDb(db);
+
+    return {
+      ...newBill,
+      customer: db.customers.find(c => c.id === newBill.customerId),
+      vehicle: db.vehicles.find(v => v.id === newBill.vehicleId),
+      items: db.billItems.filter(item => item.billId === billId),
+      mechanic: db.mechanics.find(m => m.id === newBill.mechanicId),
+      payments: db.payments.filter(p => p.billId === billId),
+      services: db.services.filter(s => s.billId === billId).map(s => ({
+        ...s,
+        mechanic: db.mechanics.find(m => m.id === s.mechanicId)
+      })),
+      advances: db.advances.filter(a => a.billId === billId),
+      timers: db.timers.filter(t => t.billId === billId),
+      followups: db.followups.filter(f => f.billId === billId)
+    };
+  },
+
+  getVehicleSuggestions: async (garageId: string): Promise<VehicleSuggestion[]> => {
+    const db = readDb(garageId);
+    return (db.vehicleSuggestions || []).filter(v => v.garageId === garageId);
+  },
+
+  getComplaintSuggestions: async (garageId: string): Promise<ComplaintSuggestion[]> => {
+    const db = readDb(garageId);
+    return (db.complaintSuggestions || []).filter(c => c.garageId === garageId);
+  },
+
+  learnVehicleSuggestion: async (garageId: string, brand: string, model: string): Promise<VehicleSuggestion> => {
+    const db = readDb(garageId);
+    if (!db.vehicleSuggestions) db.vehicleSuggestions = [];
+    const cleanBrand = brand.trim();
+    const cleanModel = model.trim();
+
+    const existing = db.vehicleSuggestions.find(
+      v => v.garageId === garageId && 
+      v.brand.toLowerCase() === cleanBrand.toLowerCase() && 
+      v.model.toLowerCase() === cleanModel.toLowerCase()
+    );
+    if (existing) return existing;
+
+    const newSuggestion = {
+      id: 'veh_sug_' + generateUuid(),
+      garageId,
+      brand: cleanBrand,
+      model: cleanModel
+    };
+    db.vehicleSuggestions.push(newSuggestion);
+    writeDb(db);
+    return newSuggestion;
+  },
+
+  learnComplaintSuggestion: async (garageId: string, name: string): Promise<ComplaintSuggestion> => {
+    const db = readDb(garageId);
+    if (!db.complaintSuggestions) db.complaintSuggestions = [];
+    const cleanName = name.trim();
+    if (!cleanName) throw new Error('Complaint name cannot be empty');
+
+    const existing = db.complaintSuggestions.find(
+      c => c.garageId === garageId && 
+      c.name.toLowerCase() === cleanName.toLowerCase()
+    );
+    if (existing) return existing;
+
+    const newSuggestion = {
+      id: 'comp_sug_' + generateUuid(),
+      garageId,
+      name: cleanName
+    };
+    db.complaintSuggestions.push(newSuggestion);
+    writeDb(db);
+    return newSuggestion;
   }
 };

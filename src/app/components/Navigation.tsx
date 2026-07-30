@@ -7,7 +7,7 @@ import { createClient } from '@/lib/supabase/client';
 import { 
   Home, PlusCircle, Search, Settings, 
   FileText, LogOut, BookOpen, Clock, Wrench, Upload,
-  X, Menu, HelpCircle, Info, Users
+  X, Menu, HelpCircle, Info, Users, Play
 } from 'lucide-react';
 
 interface NavigationProps {
@@ -131,6 +131,7 @@ export default function Navigation({ garageName }: NavigationProps) {
   const navItems = [
     { label: 'Dashboard', href: '/', icon: Home, showOnMobile: true, mobileLabel: 'Home' },
     { label: 'New Entry', href: '/entry/new', icon: PlusCircle, showOnMobile: true, mobileLabel: 'New Bill' },
+    { label: 'Working Jobs', href: '/working', icon: Play, showOnMobile: false },
     { label: 'Open Services', href: '/queue', icon: Wrench, showOnMobile: true, mobileLabel: 'Open Queue' },
     { label: 'Search', href: '/search', icon: Search, showOnMobile: true, mobileLabel: 'Search' },
     { label: 'Reports', href: '/reports', icon: BookOpen, showOnMobile: true, mobileLabel: 'Reports' },
@@ -142,7 +143,8 @@ export default function Navigation({ garageName }: NavigationProps) {
 
   const drawerLinks = [
     { label: 'Dashboard', href: '/', icon: Home },
-    { label: 'New Entry', href: '/entry', icon: PlusCircle },
+    { label: 'New Entry', href: '/entry/new', icon: PlusCircle },
+    { label: 'Working Jobs', href: '/working', icon: Play },
     { label: 'Open Services', href: '/queue', icon: Wrench },
     { label: 'Search', href: '/search', icon: Search },
     { label: 'Reports', href: '/reports', icon: BookOpen },

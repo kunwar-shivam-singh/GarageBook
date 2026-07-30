@@ -25,13 +25,12 @@ export default function BillReceipt({ bill, settings }: BillReceiptProps) {
   const [payAmount, setPayAmount] = useState<number>(bill.remainingAmount || 0);
   const [payNotes, setPayNotes] = useState('');
   
-  // Check if any service was done by an Independent Mechanic
   const hasIndependentMechanic = bill.services?.some(s => s.mechanicType === 'Independent') || false;
+  const hasParts = (bill.items && bill.items.length > 0) || false;
+  const hasLabour = (bill.services && bill.services.length > 0) || false;
 
   // Active view tab: 'combined' | 'parts' | 'labour' | 'audit'
-  const [viewMode, setViewMode] = useState<'combined' | 'parts' | 'labour' | 'audit'>(
-    hasIndependentMechanic ? 'parts' : 'combined'
-  );
+  const [viewMode, setViewMode] = useState<'combined' | 'parts' | 'labour' | 'audit'>('combined');
 
   const partsTotal = bill.partsTotal || bill.items?.reduce((sum, item) => sum + (Number(item.finalPrice || item.price || 0)), 0) || 0;
   const partsDiscount = bill.partsDiscount || 0;
@@ -566,31 +565,27 @@ Status: ${bill.paymentStatus}`;
               Combined Invoice Layout
             </button>
             
-            {hasIndependentMechanic && (
-              <>
-                <button
-                  onClick={() => setViewMode('parts')}
-                  className={`flex-1 min-w-[120px] py-2 text-xs font-extrabold rounded-xl transition-all border ${
-                    viewMode === 'parts'
-                      ? 'bg-blue-600 border-blue-600 text-white shadow-sm'
-                      : 'bg-white border-transparent text-slate-500 hover:text-slate-800'
-                  }`}
-                >
-                  Bill 1: Parts Invoice
-                </button>
-                
-                <button
-                  onClick={() => setViewMode('labour')}
-                  className={`flex-1 min-w-[120px] py-2 text-xs font-extrabold rounded-xl transition-all border ${
-                    viewMode === 'labour'
-                      ? 'bg-blue-600 border-blue-600 text-white shadow-sm'
-                      : 'bg-white border-transparent text-slate-500 hover:text-slate-800'
-                  }`}
-                >
-                  Bill 2: Labour Invoice
-                </button>
-              </>
-            )}
+            <button
+              onClick={() => setViewMode('parts')}
+              className={`flex-1 min-w-[120px] py-2 text-xs font-extrabold rounded-xl transition-all border ${
+                viewMode === 'parts'
+                  ? 'bg-blue-600 border-blue-600 text-white shadow-sm'
+                  : 'bg-white border-transparent text-slate-500 hover:text-slate-800'
+              }`}
+            >
+              Spare Parts Receipt
+            </button>
+            
+            <button
+              onClick={() => setViewMode('labour')}
+              className={`flex-1 min-w-[120px] py-2 text-xs font-extrabold rounded-xl transition-all border ${
+                viewMode === 'labour'
+                  ? 'bg-blue-600 border-blue-600 text-white shadow-sm'
+                  : 'bg-white border-transparent text-slate-500 hover:text-slate-800'
+              }`}
+            >
+              Labour Services Sheet
+            </button>
 
             <button
               onClick={() => setViewMode('audit')}

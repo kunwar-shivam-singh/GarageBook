@@ -48,19 +48,19 @@ export const db = {
     }
   },
 
-  createMechanic: async (garageId: string, name: string, workType: 'Salary' | 'Independent' = 'Salary', commissionRate: number = 0, supabase?: any) => {
+  createMechanic: async (garageId: string, name: string, workType: 'Salary' | 'Independent' = 'Salary', commissionRate: number = 0, supabase?: any, salary: number = 0) => {
     if (isSupabaseConfigured()) {
-      return supabaseDb.createMechanic(garageId, name, supabase, workType, commissionRate);
+      return supabaseDb.createMechanic(garageId, name, supabase, workType, commissionRate, salary);
     } else {
-      return jsonDb.createMechanic(garageId, name, workType, commissionRate);
+      return jsonDb.createMechanic(garageId, name, workType, commissionRate, salary);
     }
   },
 
-  updateMechanic: async (garageId: string, id: string, name: string, workType?: 'Salary' | 'Independent', commissionRate?: number, supabase?: any) => {
+  updateMechanic: async (garageId: string, id: string, name: string, workType?: 'Salary' | 'Independent', commissionRate?: number, supabase?: any, salary?: number) => {
     if (isSupabaseConfigured()) {
-      return supabaseDb.updateMechanic(garageId, id, name, workType, commissionRate, supabase);
+      return supabaseDb.updateMechanic(garageId, id, name, workType, commissionRate, supabase, salary);
     } else {
-      return jsonDb.updateMechanic(garageId, id, name, workType, commissionRate);
+      return jsonDb.updateMechanic(garageId, id, name, workType, commissionRate, salary);
     }
   },
 
@@ -272,6 +272,46 @@ export const db = {
     }
   },
 
+  getServiceJobs: async (garageId: string, supabase?: any) => {
+    if (isSupabaseConfigured()) {
+      return supabaseDb.getServiceJobs(garageId, supabase);
+    } else {
+      return jsonDb.getServiceJobs(garageId);
+    }
+  },
+
+  getServiceJobById: async (garageId: string, id: string, supabase?: any) => {
+    if (isSupabaseConfigured()) {
+      return supabaseDb.getServiceJobById(garageId, id, supabase);
+    } else {
+      return jsonDb.getServiceJobById(garageId, id);
+    }
+  },
+
+  createServiceJob: async (garageId: string, input: any, supabase?: any) => {
+    if (isSupabaseConfigured()) {
+      return supabaseDb.createServiceJob(garageId, input, supabase);
+    } else {
+      return jsonDb.createServiceJob(garageId, input);
+    }
+  },
+
+  updateServiceJob: async (garageId: string, id: string, input: any, supabase?: any) => {
+    if (isSupabaseConfigured()) {
+      return supabaseDb.updateServiceJob(garageId, id, input, supabase);
+    } else {
+      return jsonDb.updateServiceJob(garageId, id, input);
+    }
+  },
+
+  generateBillFromJob: async (garageId: string, jobId: string, supabase?: any) => {
+    if (isSupabaseConfigured()) {
+      return supabaseDb.generateBillFromJob(garageId, jobId, supabase);
+    } else {
+      return jsonDb.generateBillFromJob(garageId, jobId);
+    }
+  },
+
   searchUniversal: async (garageId: string, query: string, supabase?: any) => {
     if (isSupabaseConfigured()) {
       return supabaseDb.searchUniversal(garageId, query, supabase);
@@ -310,7 +350,39 @@ export const db = {
     } else {
       return jsonDb.deleteServiceSuggestion(garageId, id);
     }
+  },
+
+  getVehicleSuggestions: async (garageId: string, supabase?: any) => {
+    if (isSupabaseConfigured()) {
+      return supabaseDb.getVehicleSuggestions(garageId, supabase);
+    } else {
+      return jsonDb.getVehicleSuggestions(garageId);
+    }
+  },
+
+  getComplaintSuggestions: async (garageId: string, supabase?: any) => {
+    if (isSupabaseConfigured()) {
+      return supabaseDb.getComplaintSuggestions(garageId, supabase);
+    } else {
+      return jsonDb.getComplaintSuggestions(garageId);
+    }
+  },
+
+  learnVehicleSuggestion: async (garageId: string, brand: string, model: string, supabase?: any) => {
+    if (isSupabaseConfigured()) {
+      return supabaseDb.learnVehicleSuggestion(garageId, brand, model, supabase);
+    } else {
+      return jsonDb.learnVehicleSuggestion(garageId, brand, model);
+    }
+  },
+
+  learnComplaintSuggestion: async (garageId: string, name: string, supabase?: any) => {
+    if (isSupabaseConfigured()) {
+      return supabaseDb.learnComplaintSuggestion(garageId, name, supabase);
+    } else {
+      return jsonDb.learnComplaintSuggestion(garageId, name);
+    }
   }
 };
 
-export type { GarageSettings, Customer, Vehicle, Bill, BillItem, PartSuggestion, CreateBillInput, UpdateBillInput, Mechanic, Payment, Service, ServiceSuggestion, Advance, JobTimer, Followup, ManualImport } from './types';
+export type { GarageSettings, Customer, Vehicle, Bill, BillItem, PartSuggestion, CreateBillInput, UpdateBillInput, Mechanic, Payment, Service, ServiceSuggestion, Advance, JobTimer, Followup, ManualImport, ServiceJob, VehicleSuggestion, ComplaintSuggestion } from './types';

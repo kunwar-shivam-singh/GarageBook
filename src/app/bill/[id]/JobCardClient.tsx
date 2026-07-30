@@ -471,7 +471,7 @@ export default function JobCardClient({ bill: initialBill, settings }: JobCardCl
       }
 
       // 2. Set status to Delivered and expected payment date
-      await saveBillUpdates({
+      const saved = await saveBillUpdates({
         jobStatus: 'Delivered',
         expectedPaymentDate: expectedClearanceDate || null
       });
@@ -480,7 +480,11 @@ export default function JobCardClient({ bill: initialBill, settings }: JobCardCl
       if (typeof window !== 'undefined') {
         window.dispatchEvent(new CustomEvent('gb-data-changed'));
       }
-      router.refresh();
+      if (saved && saved.id !== bill.id) {
+        router.push(`/bill/${saved.id}`);
+      } else {
+        router.refresh();
+      }
     } catch (err) {
       console.error(err);
       toast.error('Failed to deliver vehicle.');

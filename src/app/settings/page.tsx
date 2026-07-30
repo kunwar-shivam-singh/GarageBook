@@ -25,7 +25,7 @@ import { GarageSettings, Mechanic, PartSuggestion, ServiceSuggestion } from '@/l
 import { 
   User, FileText, Wrench, Package, Briefcase, CreditCard, 
   Calendar, Bell, Database, Shield, HelpCircle, Info, 
-  Upload, RefreshCw, Save, Trash2, Plus, Edit2, Check, X, Search, ChevronRight, ToggleLeft, ToggleRight, LogOut
+  Upload, RefreshCw, Save, Trash2, Plus, Edit2, Check, X, Search, ChevronRight, ToggleLeft, ToggleRight, LogOut, AlertTriangle
 } from 'lucide-react';
 import { toast } from 'sonner';
 
@@ -100,7 +100,14 @@ export default function SettingsPage() {
   const [mechanics, setMechanics] = useState<Mechanic[]>([]);
   const [newMechName, setNewMechName] = useState('');
   const [newMechType, setNewMechType] = useState<'Salary' | 'Independent'>('Salary');
+  const [newMechCommission, setNewMechCommission] = useState('');
+  const [newMechSalary, setNewMechSalary] = useState('');
   const [addingMech, setAddingMech] = useState(false);
+  const [editingMechId, setEditingMechId] = useState<string | null>(null);
+  const [editingMechName, setEditingMechName] = useState('');
+  const [editingMechType, setEditingMechType] = useState<'Salary' | 'Independent'>('Salary');
+  const [editingMechCommission, setEditingMechCommission] = useState('');
+  const [editingMechSalary, setEditingMechSalary] = useState('');
 
   // 4. Parts Suggestions State
   const [partsList, setPartsList] = useState<PartSuggestion[]>([]);
@@ -179,6 +186,7 @@ export default function SettingsPage() {
             warrantyNotes: data.warrantyNotes || '',
             whatsappNumber: data.whatsappNumber || '',
             socialMedia: data.socialMedia || '',
+            mechanicMode: (data.mechanicMode as any) || 'Mixed',
           });
         }
 
@@ -296,11 +304,23 @@ export default function SettingsPage() {
     e.preventDefault();
     const clean = newMechName.trim();
     if (!clean) return;
+
+    // Determine type, commission and salary based on mechanicMode setting
+    const mode = profileSettings.mechanicMode || 'Mixed';
+    let finalType = newMechType;
+    if (mode === 'Salary') finalType = 'Salary';
+    else if (mode === 'Independent') finalType = 'Independent';
+
+    const comm = finalType === 'Independent' ? (Number(newMechCommission) || 0) : 0;
+    const sal = finalType === 'Salary' ? (Number(newMechSalary) || 0) : 0;
+
     setAddingMech(true);
     try {
-      const mech = await createMechanic(clean, newMechType);
+      const mech = await createMechanic(clean, finalType, comm, sal);
       setMechanics(prev => [...prev, mech].sort((a,b) => a.name.localeCompare(b.name)));
       setNewMechName('');
+      setNewMechCommission('');
+      setNewMechSalary('');
       toast.success(`${clean} registered successfully.`);
     } catch (err) {
       console.error(err);
@@ -310,10 +330,31 @@ export default function SettingsPage() {
     }
   };
 
+  const handleSaveEditMech = async (id: string) => {
+    if (!editingMechName.trim()) return;
+    const mode = profileSettings.mechanicMode || 'Mixed';
+    let finalType = editingMechType;
+    if (mode === 'Salary') finalType = 'Salary';
+    else if (mode === 'Independent') finalType = 'Independent';
+
+    const comm = finalType === 'Independent' ? (Number(editingMechCommission) || 0) : 0;
+    const sal = finalType === 'Salary' ? (Number(editingMechSalary) || 0) : 0;
+
+    try {
+      const updated = await updateMechanic(id, editingMechName.trim(), finalType, comm, sal);
+      setMechanics(prev => prev.map(m => m.id === id ? updated : m));
+      setEditingMechId(null);
+      toast.success('Staff details updated successfully.');
+    } catch (err) {
+      console.error(err);
+      toast.error('Failed to update mechanic.');
+    }
+  };
+
   const handleToggleMechStatus = async (mech: Mechanic) => {
     const nextType = mech.workType === 'Salary' ? 'Independent' : 'Salary';
     try {
-      const updated = await updateMechanic(mech.id, mech.name, nextType);
+      const updated = await updateMechanic(mech.id, mech.name, nextType, nextType === 'Independent' ? 15 : 0, nextType === 'Salary' ? 15000 : 0);
       setMechanics(prev => prev.map(m => m.id === mech.id ? updated : m));
       toast.success(`Work type updated for ${mech.name}.`);
     } catch (err) {
@@ -668,6 +709,20 @@ export default function SettingsPage() {
                         <input type="text" required value={profileSettings.footerMessage} onChange={(e) => setProfileSettings({...profileSettings, footerMessage: e.target.value})} className="w-full rounded-xl border border-slate-300 px-3 py-2 text-slate-900 focus:border-blue-500 focus:outline-none" />
                       </div>
 
+                      <div>
+                        <label className="block text-xs font-bold text-slate-500 mb-1">Mechanic Setting Mode</label>
+                        <select
+                          value={profileSettings.mechanicMode || 'Mixed'}
+                          onChange={(e: any) => setProfileSettings({...profileSettings, mechanicMode: e.target.value})}
+                          className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-slate-900 font-bold focus:border-blue-500 focus:outline-none cursor-pointer"
+                        >
+                          <option value="Owner Mode">Owner Mode (Independent repair, no active employees)</option>
+                          <option value="Salary">Salary Mode (Fixed monthly salaries)</option>
+                          <option value="Independent">Independent Mode (Commission based pay)</option>
+                          <option value="Mixed">Mixed Mode (Support both Salaries & Commission mechanics)</option>
+                        </select>
+                      </div>
+
                       <button type="submit" disabled={saving} className="w-full bg-success hover:bg-success-hover text-white py-3 rounded-xl text-xs font-extrabold flex items-center justify-center gap-1.5 shadow-sm active:scale-98 transition-transform disabled:opacity-50">
                         <Save className="h-4 w-4" /> {saving ? 'Saving...' : 'Save Profile Changes'}
                       </button>
@@ -734,48 +789,147 @@ export default function SettingsPage() {
                   )}
 
                   {/* 3. MECHANICS */}
-                  {activeSection === 'mechanics' && (
-                    <div className="space-y-4">
-                      <form onSubmit={handleAddMech} className="grid grid-cols-1 sm:grid-cols-4 gap-2 border-b border-slate-100 pb-4">
-                        <div className="sm:col-span-2">
-                          <input type="text" required value={newMechName} onChange={(e) => setNewMechName(e.target.value)} placeholder="Mechanic Name (e.g. Raju)..." className="w-full rounded-xl border border-slate-300 px-3 py-2 text-xs font-semibold focus:border-blue-500 focus:outline-none" />
+                  {activeSection === 'mechanics' && (() => {
+                    const mode = profileSettings.mechanicMode || 'Mixed';
+                    if (mode === 'Owner Mode') {
+                      return (
+                        <div className="bg-amber-50 border border-amber-200 rounded-2xl p-6 text-center space-y-2">
+                          <AlertTriangle className="h-8 w-8 text-amber-500 mx-auto" />
+                          <h4 className="font-extrabold text-slate-800 text-sm">Owner Mode Active</h4>
+                          <p className="text-xs text-slate-500 font-semibold leading-relaxed">
+                            Owner Mode is selected. Staff roster registration and commissions are disabled as you perform all work independently. To register staff, change the setting mode in your Profile page.
+                          </p>
                         </div>
-                        <div>
-                          <select value={newMechType} onChange={(e: any) => setNewMechType(e.target.value)} className="w-full rounded-xl border border-slate-300 bg-white px-2 py-2 text-xs font-bold focus:outline-none cursor-pointer">
-                            <option value="Salary">Salary Staff</option>
-                            <option value="Independent">Independent</option>
-                          </select>
-                        </div>
-                        <button type="submit" disabled={addingMech} className="bg-blue-600 hover:bg-blue-700 text-white rounded-xl font-bold text-xs flex items-center justify-center gap-1 active:scale-95 transition-all">
-                          <Plus className="h-4 w-4" /> Add
-                        </button>
-                      </form>
+                      );
+                    }
 
-                      <div className="max-h-[350px] overflow-y-auto space-y-2">
-                        <span className="block text-xs font-bold text-slate-400 uppercase tracking-wider">Active Staff ({mechanics.length})</span>
-                        {mechanics.length === 0 ? (
-                          <div className="text-center py-6 text-slate-400 font-semibold italic text-xs">No staff registered.</div>
-                        ) : (
-                          mechanics.map((mech) => (
-                            <div key={mech.id} className="flex justify-between items-center bg-slate-50 rounded-xl p-3 border border-slate-200 shadow-sm">
-                              <div>
-                                <span className="font-bold text-slate-900 text-sm block">{mech.name}</span>
-                                <span className="text-[10px] font-bold text-slate-400">{mech.workType} Mechanic</span>
-                              </div>
-                              <div className="flex gap-2">
-                                <button type="button" onClick={() => handleToggleMechStatus(mech)} className="px-2.5 py-1 bg-slate-200 text-slate-700 rounded-lg text-xs font-extrabold border border-slate-300 active:scale-95 hover:bg-slate-300">
-                                  Toggle Type
-                                </button>
-                                <button type="button" onClick={() => handleDeleteMech(mech.id, mech.name)} className="h-8 w-8 flex items-center justify-center rounded-lg bg-red-50 text-red-600 border border-red-150 hover:bg-red-100 active:scale-90">
-                                  <Trash2 className="h-4 w-4" />
-                                </button>
-                              </div>
+                    const selectedType = mode === 'Salary' ? 'Salary' : (mode === 'Independent' ? 'Independent' : newMechType);
+
+                    return (
+                      <div className="space-y-4">
+                        <form onSubmit={handleAddMech} className="space-y-3 border-b border-slate-100 pb-4">
+                          <div className="grid grid-cols-1 sm:grid-cols-4 gap-2">
+                            <div className="sm:col-span-2">
+                              <label className="block text-[10px] font-bold text-slate-400 uppercase mb-0.5">Staff Name</label>
+                              <input type="text" required value={newMechName} onChange={(e) => setNewMechName(e.target.value)} placeholder="Mechanic Name (e.g. Raju)..." className="w-full rounded-xl border border-slate-300 px-3 py-2 text-xs font-semibold focus:border-blue-500 focus:outline-none" />
                             </div>
-                          ))
-                        )}
+                            
+                            {mode === 'Mixed' && (
+                              <div>
+                                <label className="block text-[10px] font-bold text-slate-400 uppercase mb-0.5">Work Type</label>
+                                <select value={newMechType} onChange={(e: any) => setNewMechType(e.target.value)} className="w-full rounded-xl border border-slate-300 bg-white px-2 py-2 text-xs font-bold focus:outline-none cursor-pointer">
+                                  <option value="Salary">Salary Staff</option>
+                                  <option value="Independent">Independent</option>
+                                </select>
+                              </div>
+                            )}
+
+                            {selectedType === 'Salary' && (
+                              <div>
+                                <label className="block text-[10px] font-bold text-slate-400 uppercase mb-0.5">Salary (₹)</label>
+                                <input type="number" required min={0} value={newMechSalary} onChange={(e) => setNewMechSalary(e.target.value)} placeholder="Monthly salary..." className="w-full rounded-xl border border-slate-300 px-3 py-2 text-xs font-semibold focus:border-blue-500 focus:outline-none" />
+                              </div>
+                            )}
+
+                            {selectedType === 'Independent' && (
+                              <div>
+                                <label className="block text-[10px] font-bold text-slate-400 uppercase mb-0.5">Commission (%)</label>
+                                <input type="number" required min={0} max={100} value={newMechCommission} onChange={(e) => setNewMechCommission(e.target.value)} placeholder="e.g. 15%" className="w-full rounded-xl border border-slate-300 px-3 py-2 text-xs font-semibold focus:border-blue-500 focus:outline-none" />
+                              </div>
+                            )}
+                          </div>
+
+                          <div className="flex justify-end">
+                            <button type="submit" disabled={addingMech} className="bg-blue-600 hover:bg-blue-700 text-white rounded-xl px-5 py-2 font-bold text-xs flex items-center justify-center gap-1 active:scale-95 transition-all">
+                              <Plus className="h-4 w-4" /> Add Mechanic
+                            </button>
+                          </div>
+                        </form>
+
+                        <div className="max-h-[350px] overflow-y-auto space-y-2">
+                          <span className="block text-xs font-bold text-slate-400 uppercase tracking-wider">Active Staff ({mechanics.length})</span>
+                          {mechanics.length === 0 ? (
+                            <div className="text-center py-6 text-slate-400 font-semibold italic text-xs">No staff registered.</div>
+                          ) : (
+                            mechanics.map((mech) => {
+                              const isEditing = editingMechId === mech.id;
+                              const currentMechType = mode === 'Salary' ? 'Salary' : (mode === 'Independent' ? 'Independent' : (isEditing ? editingMechType : mech.workType));
+
+                              return (
+                                <div key={mech.id} className="bg-slate-50 rounded-xl p-3 border border-slate-200 shadow-sm space-y-2">
+                                  {isEditing ? (
+                                    <div className="space-y-3">
+                                      <div className="grid grid-cols-1 sm:grid-cols-4 gap-2">
+                                        <div className="sm:col-span-2">
+                                          <label className="block text-[9px] font-bold text-slate-400 uppercase mb-0.5">Name</label>
+                                          <input type="text" value={editingMechName} onChange={(e) => setEditingMechName(e.target.value)} className="w-full rounded-lg border border-slate-300 px-2.5 py-1.5 text-xs font-semibold" />
+                                        </div>
+                                        {mode === 'Mixed' && (
+                                          <div>
+                                            <label className="block text-[9px] font-bold text-slate-400 uppercase mb-0.5">Work Type</label>
+                                            <select value={editingMechType} onChange={(e: any) => setEditingMechType(e.target.value)} className="w-full rounded-lg border border-slate-300 bg-white px-2 py-1.5 text-xs font-semibold">
+                                              <option value="Salary">Salary Staff</option>
+                                              <option value="Independent">Independent</option>
+                                            </select>
+                                          </div>
+                                        )}
+                                        {currentMechType === 'Salary' && (
+                                          <div>
+                                            <label className="block text-[9px] font-bold text-slate-400 uppercase mb-0.5">Salary (₹)</label>
+                                            <input type="number" min={0} value={editingMechSalary} onChange={(e) => setEditingMechSalary(e.target.value)} className="w-full rounded-lg border border-slate-300 px-2.5 py-1.5 text-xs font-semibold" />
+                                          </div>
+                                        )}
+                                        {currentMechType === 'Independent' && (
+                                          <div>
+                                            <label className="block text-[9px] font-bold text-slate-400 uppercase mb-0.5">Commission (%)</label>
+                                            <input type="number" min={0} max={100} value={editingMechCommission} onChange={(e) => setEditingMechCommission(e.target.value)} className="w-full rounded-lg border border-slate-300 px-2.5 py-1.5 text-xs font-semibold" />
+                                          </div>
+                                        )}
+                                      </div>
+                                      <div className="flex justify-end gap-1.5 text-[10px] font-bold">
+                                        <button type="button" onClick={() => setEditingMechId(null)} className="px-3 py-1.5 bg-slate-200 hover:bg-slate-300 rounded-lg text-slate-700">Cancel</button>
+                                        <button type="button" onClick={() => handleSaveEditMech(mech.id)} className="px-3 py-1.5 bg-blue-600 hover:bg-blue-700 rounded-lg text-white">Save</button>
+                                      </div>
+                                    </div>
+                                  ) : (
+                                    <div className="flex justify-between items-center">
+                                      <div>
+                                        <span className="font-bold text-slate-900 text-sm block">{mech.name}</span>
+                                        <span className="text-[10px] font-bold text-slate-400">
+                                          {mech.workType} Mechanic {
+                                            mech.workType === 'Salary' && mode !== 'Independent' ? `(Salary: ₹${mech.salary || 0})` :
+                                            mech.workType === 'Independent' && mode !== 'Salary' ? `(Commission: ${mech.commissionRate || 0}%)` : ''
+                                          }
+                                        </span>
+                                      </div>
+                                      <div className="flex gap-2">
+                                        <button
+                                          type="button"
+                                          onClick={() => {
+                                            setEditingMechId(mech.id);
+                                            setEditingMechName(mech.name);
+                                            setEditingMechType(mech.workType);
+                                            setEditingMechCommission(String(mech.commissionRate || 0));
+                                            setEditingMechSalary(String(mech.salary || 0));
+                                          }}
+                                          className="h-8 w-8 flex items-center justify-center rounded-lg bg-slate-200 text-slate-700 border border-slate-300 hover:bg-slate-300 active:scale-90"
+                                        >
+                                          <Edit2 className="h-3.5 w-3.5" />
+                                        </button>
+                                        <button type="button" onClick={() => handleDeleteMech(mech.id, mech.name)} className="h-8 w-8 flex items-center justify-center rounded-lg bg-red-50 text-red-600 border border-red-150 hover:bg-red-100 active:scale-90">
+                                          <Trash2 className="h-4 w-4" />
+                                        </button>
+                                      </div>
+                                    </div>
+                                  )}
+                                </div>
+                              );
+                            })
+                          )}
+                        </div>
                       </div>
-                    </div>
-                  )}
+                    );
+                  })()}
 
                   {/* 4. PARTS SUGGESTIONS */}
                   {activeSection === 'parts' && (

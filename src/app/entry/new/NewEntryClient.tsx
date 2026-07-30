@@ -1,13 +1,20 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import Navigation from '../../components/Navigation';
 import Header from '../../components/Header';
-import { createBill, getActiveJobByVehicleNumber } from '../../actions';
+import { 
+  createBill, 
+  getActiveJobByVehicleNumber, 
+  getCustomerOutstandingDues,
+  getVehicleSuggestions,
+  getComplaintSuggestions,
+  getCustomerPhoneByVehicleNumber
+} from '../../actions';
 import { 
   User, Bike, MessageSquare, CreditCard, ChevronRight, ChevronLeft, 
-  Plus, Trash2, CheckCircle2, UserCheck, AlertTriangle
+  Plus, Trash2, CheckCircle2, UserCheck, AlertTriangle, Search, FileText, Eye
 } from 'lucide-react';
 import { toast } from 'sonner';
 
@@ -16,16 +23,16 @@ interface NewEntryClientProps {
 }
 
 const COMMON_COMPLAINTS = [
-  "Brake not working",
-  "Clutch hard",
-  "Engine noise",
-  "Oil leakage",
-  "Battery issue",
   "General Service",
-  "Chain Noise",
-  "Headlight not working",
-  "Horn not working",
-  "Tyre puncture"
+  "Engine Noise",
+  "Brake Problem",
+  "Clutch Problem",
+  "Chain Sprocket",
+  "Oil Change",
+  "Puncture",
+  "Electrical Issue",
+  "Battery Issue",
+  "Starting Problem"
 ];
 
 export default function NewEntryClient({ garageName }: NewEntryClientProps) {
@@ -33,6 +40,25 @@ export default function NewEntryClient({ garageName }: NewEntryClientProps) {
   const [step, setStep] = useState(1);
   const [saving, setSaving] = useState(false);
   const [activeJobAlert, setActiveJobAlert] = useState<{ id: string; vehicleNumber: string; jobStatus: string; mechanicName: string } | null>(null);
+
+  // Suggestions lists from DB
+  const [vehicleSuggestionsList, setVehicleSuggestionsList] = useState<{ id: string; brand: string; model: string }[]>([]);
+  const [complaintSuggestionsList, setComplaintSuggestionsList] = useState<string[]>([]);
+
+  // Suggestions visibility toggles
+  const [showBrandSuggestions, setShowBrandSuggestions] = useState(false);
+  const [showModelSuggestions, setShowModelSuggestions] = useState(false);
+  const [showComplaintSuggestions, setShowComplaintSuggestions] = useState(false);
+
+  // Previous Unpaid Bill Detection Popup state
+  const [prevBillAlert, setPrevBillAlert] = useState<{
+    totalDues: number;
+    unpaidBills: { id: string; invoiceNumber: string; date: string; remainingAmount: number; isImport?: boolean }[];
+    followupDate?: string | null;
+  } | null>(null);
+
+  const [mergeBillIds, setMergeBillIds] = useState<string[]>([]);
+  const [mergeBillAmount, setMergeBillAmount] = useState(0);
 
   // Step 1: Customer & Vehicle Info
   const [phone, setPhone] = useState('');
@@ -49,6 +75,72 @@ export default function NewEntryClient({ garageName }: NewEntryClientProps) {
   const [hasAdvance, setHasAdvance] = useState(false);
   const [advanceAmount, setAdvanceAmount] = useState('');
   const [paymentMode, setPaymentMode] = useState<'CASH' | 'UPI' | 'CARD' | 'BANK_TRANSFER' | 'OTHER'>('UPI');
+
+  // Load brand/model & complaint suggestion presets
+  useEffect(() => {
+    async function loadSuggestions() {
+      try {
+        const vSugs = await getVehicleSuggestions();
+        if (vSugs) setVehicleSuggestionsList(vSugs);
+
+        const cSugs = await getComplaintSuggestions();
+        if (cSugs) setComplaintSuggestionsList(cSugs.map(c => c.name));
+      } catch (err) {
+        console.error("Failed to load autocomplete suggestions:", err);
+      }
+    }
+    loadSuggestions();
+  }, []);
+
+  // Trigger dues check when phone number reaches 10 digits
+  useEffect(() => {
+    if (phone.length === 10) {
+      checkPreviousDuesByPhone(phone);
+    } else {
+      setPrevBillAlert(null);
+      setMergeBillIds([]);
+      setMergeBillAmount(0);
+    }
+  }, [phone]);
+
+  // Trigger dues check when vehicle registration is typed & blurred (e.g. at least 6 chars)
+  const handleVehicleBlur = async () => {
+    const cleanVeh = vehicleNumber.replace(/\s+/g, '').replace(/-+/g, '').toUpperCase();
+    if (cleanVeh.length >= 6) {
+      try {
+        const matchedPhone = await getCustomerPhoneByVehicleNumber(cleanVeh);
+        if (matchedPhone) {
+          if (!phone) setPhone(matchedPhone); // auto-fill phone
+          checkPreviousDuesByPhone(matchedPhone);
+        }
+      } catch (err) {
+        console.error(err);
+      }
+    }
+  };
+
+  const checkPreviousDuesByPhone = async (phoneVal: string) => {
+    try {
+      const res = await getCustomerOutstandingDues(phoneVal);
+      if (res && res.unpaidBills && res.unpaidBills.length > 0) {
+        setPrevBillAlert({
+          totalDues: res.totalDues,
+          unpaidBills: res.unpaidBills,
+          followupDate: res.followupDate
+        });
+      } else {
+        setPrevBillAlert(null);
+      }
+    } catch (err) {
+      console.error("Failed to fetch customer dues details:", err);
+    }
+  };
+
+  const distinctBrands = Array.from(new Set(vehicleSuggestionsList.map(v => v.brand))).filter(Boolean);
+  const filteredModels = vehicleSuggestionsList
+    .filter(v => !brand || v.brand.toLowerCase() === brand.toLowerCase())
+    .map(v => v.model)
+    .filter((value, index, self) => self.indexOf(value) === index);
 
   // Input validation routines
   const validateStep1 = () => {
@@ -153,6 +245,8 @@ export default function NewEntryClient({ garageName }: NewEntryClientProps) {
       workRequested: complaints.join(', '),
       advanceReceived: hasAdvance ? Number(advanceAmount) : 0,
       advances: hasAdvance ? [{ amount: Number(advanceAmount), paymentMode }] : [],
+      previousDueAdded: mergeBillIds.length > 0 ? mergeBillAmount : 0,
+      previousDueBillIds: mergeBillIds,
     };
 
     try {
@@ -169,6 +263,8 @@ export default function NewEntryClient({ garageName }: NewEntryClientProps) {
       setHasAdvance(false);
       setAdvanceAmount('');
       setPaymentMode('UPI');
+      setMergeBillIds([]);
+      setMergeBillAmount(0);
       setStep(1);
 
       toast.success("Vehicle added to workshop queue.");
@@ -254,31 +350,76 @@ export default function NewEntryClient({ garageName }: NewEntryClientProps) {
                     required
                     value={vehicleNumber}
                     onChange={(e) => setVehicleNumber(e.target.value)}
+                    onBlur={handleVehicleBlur}
                     className="w-full rounded-xl border border-slate-300 px-3.5 py-2.5 text-sm text-slate-900 font-mono focus:outline-none focus:border-blue-500 uppercase"
                     placeholder="e.g. MH12AB1234"
                   />
                 </div>
-                <div>
+                <div className="relative">
                   <label className="block text-xs font-bold text-slate-500 mb-1">Brand</label>
                   <input
                     type="text"
                     required
                     value={brand}
                     onChange={(e) => setBrand(e.target.value)}
+                    onFocus={() => setShowBrandSuggestions(true)}
+                    onBlur={() => setTimeout(() => setShowBrandSuggestions(false), 200)}
                     className="w-full rounded-xl border border-slate-300 px-3.5 py-2.5 text-sm text-slate-900 focus:outline-none focus:border-blue-500"
                     placeholder="e.g. Honda..."
                   />
+                  {showBrandSuggestions && distinctBrands.length > 0 && (
+                    <div className="absolute z-30 w-full mt-1 bg-white border border-slate-200 rounded-xl shadow-lg max-h-48 overflow-y-auto">
+                      {distinctBrands
+                        .filter(b => b.toLowerCase().includes(brand.toLowerCase()))
+                        .map(b => (
+                          <button
+                            key={b}
+                            type="button"
+                            onMouseDown={() => {
+                              setBrand(b);
+                              setShowBrandSuggestions(false);
+                            }}
+                            className="w-full text-left px-4 py-2 hover:bg-slate-50 text-xs font-bold text-slate-800 border-b border-slate-100 last:border-0"
+                          >
+                            {b}
+                          </button>
+                        ))
+                      }
+                    </div>
+                  )}
                 </div>
-                <div>
+                <div className="relative">
                   <label className="block text-xs font-bold text-slate-500 mb-1">Model</label>
                   <input
                     type="text"
                     required
                     value={model}
                     onChange={(e) => setModel(e.target.value)}
+                    onFocus={() => setShowModelSuggestions(true)}
+                    onBlur={() => setTimeout(() => setShowModelSuggestions(false), 200)}
                     className="w-full rounded-xl border border-slate-300 px-3.5 py-2.5 text-sm text-slate-900 focus:outline-none focus:border-blue-500"
                     placeholder="e.g. Activa..."
                   />
+                  {showModelSuggestions && filteredModels.length > 0 && (
+                    <div className="absolute z-30 w-full mt-1 bg-white border border-slate-200 rounded-xl shadow-lg max-h-48 overflow-y-auto">
+                      {filteredModels
+                        .filter(m => m.toLowerCase().includes(model.toLowerCase()))
+                        .map(m => (
+                          <button
+                            key={m}
+                            type="button"
+                            onMouseDown={() => {
+                              setModel(m);
+                              setShowModelSuggestions(false);
+                            }}
+                            className="w-full text-left px-4 py-2 hover:bg-slate-50 text-xs font-bold text-slate-800 border-b border-slate-100 last:border-0"
+                          >
+                            {m}
+                          </button>
+                        ))
+                      }
+                    </div>
+                  )}
                 </div>
               </div>
 
@@ -328,21 +469,46 @@ export default function NewEntryClient({ garageName }: NewEntryClientProps) {
               </div>
 
               {/* Add Custom Complaint */}
-              <form onSubmit={handleAddCustomComplaint} className="flex gap-2 pt-3 border-t border-slate-100">
-                <input
-                  type="text"
-                  value={customComplaint}
-                  onChange={(e) => setCustomComplaint(e.target.value)}
-                  className="flex-1 rounded-xl border border-slate-300 px-3.5 py-2 text-xs font-semibold focus:outline-none focus:border-blue-500"
-                  placeholder="Type other custom complaint task..."
-                />
-                <button
-                  type="submit"
-                  className="bg-slate-800 hover:bg-slate-900 text-white rounded-xl px-4 text-xs font-extrabold flex items-center gap-1 active:scale-95"
-                >
-                  <Plus className="h-4 w-4" /> Add
-                </button>
-              </form>
+              <div className="relative">
+                <form onSubmit={handleAddCustomComplaint} className="flex gap-2 pt-3 border-t border-slate-100">
+                  <input
+                    type="text"
+                    value={customComplaint}
+                    onChange={(e) => setCustomComplaint(e.target.value)}
+                    onFocus={() => setShowComplaintSuggestions(true)}
+                    onBlur={() => setTimeout(() => setShowComplaintSuggestions(false), 200)}
+                    className="flex-1 rounded-xl border border-slate-300 px-3.5 py-2 text-xs font-semibold focus:outline-none focus:border-blue-500"
+                    placeholder="Type other custom complaint task..."
+                  />
+                  <button
+                    type="submit"
+                    className="bg-slate-800 hover:bg-slate-900 text-white rounded-xl px-4 text-xs font-extrabold flex items-center gap-1 active:scale-95"
+                  >
+                    <Plus className="h-4 w-4" /> Add
+                  </button>
+                </form>
+                {showComplaintSuggestions && complaintSuggestionsList.length > 0 && (
+                  <div className="absolute z-35 w-full mt-1 bg-white border border-slate-200 rounded-xl shadow-lg max-h-48 overflow-y-auto">
+                    {complaintSuggestionsList
+                      .filter(c => c.toLowerCase().includes(customComplaint.toLowerCase()) && !complaints.includes(c))
+                      .map(c => (
+                        <button
+                          key={c}
+                          type="button"
+                          onMouseDown={() => {
+                            setComplaints(prev => [...prev, c]);
+                            setCustomComplaint('');
+                            setShowComplaintSuggestions(false);
+                          }}
+                          className="w-full text-left px-4 py-2 hover:bg-slate-50 text-xs font-bold text-slate-800 border-b border-slate-100 last:border-0"
+                        >
+                          {c}
+                        </button>
+                      ))
+                    }
+                  </div>
+                )}
+              </div>
 
               {/* Registered Complaints list */}
               {complaints.length > 0 && (
@@ -561,6 +727,93 @@ export default function NewEntryClient({ garageName }: NewEntryClientProps) {
                 className="px-4 py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-extrabold shadow-sm hover:shadow active:scale-95 transition-all"
               >
                 Open Existing Job
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+      {/* PREVIOUS UNPAID BILL DETECTION DIALOG */}
+      {prevBillAlert && (
+        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4 animate-in fade-in duration-200">
+          <div className="bg-white border border-slate-200 rounded-3xl p-6 shadow-2xl max-w-md w-full space-y-5 animate-in zoom-in-95 duration-200">
+            
+            {/* Title */}
+            <div className="flex items-center gap-3 text-red-600">
+              <AlertTriangle className="h-6 w-6" />
+              <h3 className="text-lg font-black tracking-tight">Previous Pending Bill Found</h3>
+            </div>
+
+            {/* Info */}
+            <p className="text-xs text-slate-500 font-bold leading-relaxed">
+              This customer has outstanding balances from prior visits. Please select how you want to handle these dues.
+            </p>
+
+            {/* Dues Details */}
+            <div className="bg-red-50 border border-red-150 rounded-2xl p-4.5 space-y-3">
+              <div className="flex justify-between items-center pb-2 border-b border-red-200/50 font-bold text-xs text-red-800">
+                <span>Outstanding Balance</span>
+                <span className="text-base font-black">₹{prevBillAlert.totalDues}</span>
+              </div>
+
+              <div className="space-y-2 max-h-32 overflow-y-auto pr-1">
+                {prevBillAlert.unpaidBills.map((bill) => (
+                  <div key={bill.id} className="flex justify-between items-center text-xs font-bold text-slate-700 bg-white/70 border border-slate-200 rounded-xl px-3 py-2">
+                    <div className="space-y-0.5">
+                      <span className="block font-mono text-slate-900">{bill.invoiceNumber}</span>
+                      <span className="block text-[9px] text-slate-400 font-semibold">{new Date(bill.date).toLocaleDateString('en-US', { day: 'numeric', month: 'short', year: 'numeric' })}</span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <span className="text-slate-900 font-black">₹{bill.remainingAmount}</span>
+                      {!bill.isImport && (
+                        <a
+                          href={`/bill/${bill.id}`}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="p-1 bg-slate-100 hover:bg-slate-200 rounded text-slate-500 transition-colors"
+                          title="View Bill Details"
+                        >
+                          <Eye className="h-3.5 w-3.5" />
+                        </a>
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
+
+              {prevBillAlert.followupDate && (
+                <div className="pt-2 text-[10px] font-bold text-red-600 flex justify-between items-center">
+                  <span>Next Scheduled Follow-up:</span>
+                  <span className="font-mono">{new Date(prevBillAlert.followupDate).toLocaleDateString('en-GB')}</span>
+                </div>
+              )}
+            </div>
+
+            {/* Buttons */}
+            <div className="grid grid-cols-2 gap-2 text-xs font-black">
+              <button
+                type="button"
+                onClick={() => {
+                  setMergeBillIds([]);
+                  setMergeBillAmount(0);
+                  setPrevBillAlert(null);
+                  toast.info("Keeping invoices separate.");
+                }}
+                className="w-full bg-slate-100 hover:bg-slate-200 text-slate-700 py-3 rounded-xl border border-slate-200 active:scale-95 transition-all text-center"
+              >
+                Keep Separate
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  const ids = prevBillAlert.unpaidBills.map(b => b.id);
+                  setMergeBillIds(ids);
+                  setMergeBillAmount(prevBillAlert.totalDues);
+                  setPrevBillAlert(null);
+                  toast.success(`Dues of ₹${prevBillAlert.totalDues} queued for merged collection!`);
+                }}
+                className="w-full bg-blue-600 hover:bg-blue-700 text-white py-3 rounded-xl shadow-md active:scale-95 transition-all text-center"
+              >
+                Merge Collection
               </button>
             </div>
           </div>

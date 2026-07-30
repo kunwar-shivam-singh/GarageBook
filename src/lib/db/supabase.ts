@@ -2,7 +2,8 @@ import { createClient } from '@supabase/supabase-js';
 import { 
   GarageSettings, Customer, Vehicle, Bill, BillItem, PartSuggestion, 
   CreateBillInput, UpdateBillInput, Mechanic, Payment, Service, 
-  ServiceSuggestion, Advance, JobTimer, Followup, ManualImport
+  ServiceSuggestion, Advance, JobTimer, Followup, ManualImport, ServiceJob,
+  VehicleSuggestion, ComplaintSuggestion
 } from './types';
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
@@ -25,6 +26,7 @@ function mapSettings(dbSettings: any): GarageSettings {
     warrantyNotes: dbSettings.warranty_notes || '',
     whatsappNumber: dbSettings.whatsapp_number || '',
     socialMedia: dbSettings.social_media || '',
+    mechanicMode: dbSettings.mechanic_mode || 'Mixed',
   };
 }
 
@@ -72,6 +74,7 @@ function mapMechanic(dbMechanic: any): Mechanic {
     createdAt: dbMechanic.created_at,
     workType: (dbMechanic.work_type || 'Salary') as 'Salary' | 'Independent',
     commissionRate: dbMechanic.commission_rate ? Number(dbMechanic.commission_rate) : 0,
+    salary: dbMechanic.salary ? Number(dbMechanic.salary) : 0,
   };
 }
 
@@ -220,6 +223,60 @@ function mapBill(dbBill: any): Bill {
   };
 }
 
+function mapServiceJob(dbJob: any): ServiceJob {
+  return {
+    id: dbJob.id,
+    vehicleId: dbJob.vehicle_id,
+    customerId: dbJob.customer_id,
+    date: dbJob.date,
+    labour: Number(dbJob.labour),
+    total: Number(dbJob.total),
+    notes: dbJob.notes || '',
+    paymentStatus: dbJob.payment_status as 'PAID' | 'PARTIAL' | 'PENDING',
+    createdAt: dbJob.created_at,
+    customer: dbJob.customers ? mapCustomer(dbJob.customers) : undefined,
+    vehicle: dbJob.vehicles ? mapVehicle(dbJob.vehicles) : undefined,
+    items: dbJob.bill_items ? dbJob.bill_items.map(mapBillItem) : undefined,
+    
+    mechanicId: dbJob.mechanic_id || null,
+    receivedAmount: dbJob.received_amount ? Number(dbJob.received_amount) : 0,
+    remainingAmount: dbJob.remaining_amount ? Number(dbJob.remaining_amount) : 0,
+    expectedPaymentDate: dbJob.expected_payment_date || null,
+    followupReminderDate: dbJob.followup_reminder_date || null,
+    paymentNotes: dbJob.payment_notes || null,
+
+    jobStatus: (dbJob.job_status || 'Waiting') as any,
+    workRequested: dbJob.work_requested || '',
+    jobStartTime: dbJob.job_start_time || null,
+    jobEndTime: dbJob.job_end_time || null,
+    totalWorkingTime: dbJob.total_working_time ? Number(dbJob.total_working_time) : 0,
+    pauseDuration: dbJob.pause_duration ? Number(dbJob.pause_duration) : 0,
+    actualWorkingDuration: dbJob.actual_working_duration ? Number(dbJob.actual_working_duration) : 0,
+    timerState: (dbJob.timer_state || 'STOPPED') as any,
+    lastTimerActionAt: dbJob.last_timer_action_at || null,
+
+    partsTotal: dbJob.parts_total ? Number(dbJob.parts_total) : 0,
+    partsDiscount: dbJob.parts_discount ? Number(dbJob.parts_discount) : 0,
+    labourTotal: dbJob.labour_total ? Number(dbJob.labour_total) : 0,
+    labourDiscount: dbJob.labour_discount ? Number(dbJob.labour_discount) : 0,
+    overallDiscount: dbJob.overall_discount ? Number(dbJob.overall_discount) : 0,
+    advanceReceived: dbJob.advance_received ? Number(dbJob.advance_received) : 0,
+    previousDueAdded: dbJob.previous_due_added ? Number(dbJob.previous_due_added) : 0,
+    previousDueBillIds: dbJob.previous_due_bill_ids || [],
+    overallDiscountType: (dbJob.overall_discount_type || 'FLAT') as 'FLAT' | 'PERCENT',
+    overallDiscountValue: dbJob.overall_discount_value ? Number(dbJob.overall_discount_value) : 0,
+    serviceNotes: dbJob.service_notes || '',
+    showServiceNotes: dbJob.show_service_notes !== undefined ? dbJob.show_service_notes : true,
+
+    mechanic: dbJob.mechanics ? mapMechanic(dbJob.mechanics) : null,
+    payments: dbJob.payments ? dbJob.payments.map(mapPayment) : undefined,
+    services: dbJob.services ? dbJob.services.map(mapService) : undefined,
+    advances: dbJob.advances ? dbJob.advances.map(mapAdvance) : undefined,
+    timers: dbJob.job_timers ? dbJob.job_timers.map(mapJobTimer) : undefined,
+    followups: dbJob.followups ? dbJob.followups.map(mapFollowup) : undefined,
+  };
+}
+
 function mapPartSuggestion(dbPart: any): PartSuggestion {
   return {
     id: dbPart.id,
@@ -271,6 +328,7 @@ export const supabaseDb = {
         warranty_notes: settings.warrantyNotes || '',
         whatsapp_number: settings.whatsappNumber || '',
         social_media: settings.socialMedia || '',
+        mechanic_mode: settings.mechanicMode || 'Mixed',
         updated_at: new Date().toISOString(),
       })
       .eq('id', garageId)
@@ -301,7 +359,8 @@ export const supabaseDb = {
     name: string, 
     supabase?: any, 
     workType: 'Salary' | 'Independent' = 'Salary', 
-    commissionRate: number = 0
+    commissionRate: number = 0,
+    salary: number = 0
   ): Promise<Mechanic> => {
     const client = supabase || supabaseClient;
     if (!client) throw new Error('Supabase client not initialized');
@@ -323,7 +382,8 @@ export const supabaseDb = {
         garage_id: garageId, 
         name: cleanName,
         work_type: workType,
-        commission_rate: commissionRate
+        commission_rate: commissionRate,
+        salary: salary
       })
       .select()
       .single();
@@ -338,7 +398,8 @@ export const supabaseDb = {
     name: string, 
     workType?: 'Salary' | 'Independent', 
     commissionRate?: number, 
-    supabase?: any
+    supabase?: any,
+    salary?: number
   ): Promise<Mechanic> => {
     const client = supabase || supabaseClient;
     if (!client) throw new Error('Supabase client not initialized');
@@ -346,6 +407,7 @@ export const supabaseDb = {
     const payload: any = { name: name.trim() };
     if (workType) payload.work_type = workType;
     if (commissionRate !== undefined) payload.commission_rate = commissionRate;
+    if (salary !== undefined) payload.salary = salary;
 
     const { data, error } = await client
       .from('mechanics')
@@ -488,6 +550,112 @@ export const supabaseDb = {
   logTimerAction: async (garageId: string, billId: string, action: 'START' | 'PAUSE' | 'RESUME' | 'COMPLETE', supabase?: any): Promise<Bill> => {
     const client = supabase || supabaseClient;
     if (!client) throw new Error('Supabase client not initialized');
+
+    // Check if it is a Service Job
+    const { data: jobData, error: jobCheckError } = await client
+      .from('service_jobs')
+      .select('*')
+      .eq('id', billId)
+      .eq('garage_id', garageId)
+      .maybeSingle();
+
+    if (jobData) {
+      const timestamp = new Date().toISOString();
+      const { error: timerError } = await client
+        .from('job_timers')
+        .insert({
+          garage_id: garageId,
+          job_id: billId,
+          action,
+          timestamp,
+        });
+
+      if (timerError) throw timerError;
+
+      const lastActionTime = jobData.last_timer_action_at ? new Date(jobData.last_timer_action_at).getTime() : new Date().getTime();
+      const diffSeconds = Math.max(0, Math.floor((Date.now() - lastActionTime) / 1000));
+
+      let timerState: 'STOPPED' | 'RUNNING' | 'PAUSED' | 'COMPLETED' = 'STOPPED';
+      let jobStatus = jobData.job_status;
+      let jobStartTime = jobData.job_start_time;
+      let jobEndTime = jobData.job_end_time;
+      let actualWorkingDuration = Number(jobData.actual_working_duration || 0);
+      let pauseDuration = Number(jobData.pause_duration || 0);
+
+      if (action === 'START') {
+        timerState = 'RUNNING';
+        jobStartTime = timestamp;
+        jobStatus = 'Work Started';
+      } else if (action === 'PAUSE') {
+        if (jobData.timer_state === 'RUNNING') {
+          actualWorkingDuration += diffSeconds;
+        }
+        timerState = 'PAUSED';
+        jobStatus = 'Waiting for Parts';
+      } else if (action === 'RESUME') {
+        if (jobData.timer_state === 'PAUSED') {
+          pauseDuration += diffSeconds;
+        }
+        timerState = 'RUNNING';
+        jobStatus = 'Work Started';
+      } else if (action === 'COMPLETE') {
+        if (jobData.timer_state === 'RUNNING') {
+          actualWorkingDuration += diffSeconds;
+        } else if (jobData.timer_state === 'PAUSED') {
+          pauseDuration += diffSeconds;
+        }
+        timerState = 'COMPLETED';
+        jobEndTime = timestamp;
+        jobStatus = 'Completed';
+      }
+
+      const totalWorkingTime = actualWorkingDuration + pauseDuration;
+
+      const { data: finalJob, error: updateError } = await client
+        .from('service_jobs')
+        .update({
+          timer_state: timerState,
+          job_status: jobStatus,
+          job_start_time: jobStartTime,
+          job_end_time: jobEndTime,
+          actual_working_duration: actualWorkingDuration,
+          pause_duration: pauseDuration,
+          total_working_time: totalWorkingTime,
+          last_timer_action_at: timestamp,
+        })
+        .eq('id', billId)
+        .eq('garage_id', garageId)
+        .select(`
+          *,
+          customers (*),
+          vehicles (*),
+          bill_items (*),
+          mechanics (*),
+          payments (*),
+          services (*, mechanics (*)),
+          advances (*),
+          job_timers (*),
+          followups (*)
+        `)
+        .single();
+
+      if (updateError) throw updateError;
+      
+      await client
+        .from('services')
+        .update({
+          working_time: actualWorkingDuration,
+          start_time: jobStartTime,
+          end_time: jobEndTime
+        })
+        .eq('job_id', billId)
+        .eq('garage_id', garageId);
+
+      return {
+        ...mapServiceJob(finalJob),
+        invoiceNumber: '',
+      } as unknown as Bill;
+    }
 
     // 1. Get current bill state
     const { data: billData, error: loadError } = await client
@@ -680,7 +848,7 @@ export const supabaseDb = {
     return data ? mapCustomer(data) : null;
   },
 
-  getCustomerOutstandingDues: async (garageId: string, phone: string, supabase?: any): Promise<{ totalDues: number; unpaidBills: any[] }> => {
+  getCustomerOutstandingDues: async (garageId: string, phone: string, supabase?: any): Promise<{ totalDues: number; unpaidBills: any[]; followupDate?: string | null }> => {
     const client = supabase || supabaseClient;
     if (!client) throw new Error('Supabase client not initialized');
 
@@ -722,12 +890,50 @@ export const supabaseDb = {
       isImport: true,
     }));
 
+    // Fetch all customer bill IDs and job IDs to locate followups
+    const { data: customerBills } = await client
+      .from('bills')
+      .select('id')
+      .eq('customer_id', customer.id);
+    
+    const { data: customerJobs } = await client
+      .from('service_jobs')
+      .select('id')
+      .eq('customer_id', customer.id);
+
+    const billIds = (customerBills || []).map((b: any) => b.id);
+    const jobIds = (customerJobs || []).map((j: any) => j.id);
+
+    let followupDate: string | null = null;
+    if (billIds.length > 0 || jobIds.length > 0) {
+      let query = client
+        .from('followups')
+        .select('followup_date')
+        .eq('status', 'PENDING')
+        .eq('garage_id', garageId);
+      
+      if (billIds.length > 0 && jobIds.length > 0) {
+        query = query.or(`bill_id.in.(${billIds.join(',')}),job_id.in.(${jobIds.join(',')})`);
+      } else if (billIds.length > 0) {
+        query = query.in('bill_id', billIds);
+      } else {
+        query = query.in('job_id', jobIds);
+      }
+
+      const { data: followups } = await query
+        .order('followup_date', { ascending: true })
+        .limit(1);
+
+      followupDate = followups && followups.length > 0 ? followups[0].followup_date : null;
+    }
+
     const allDues = [...formattedBills, ...formattedImports];
     const totalDues = allDues.reduce((sum, item) => sum + item.remainingAmount, 0);
 
     return {
       totalDues,
       unpaidBills: allDues,
+      followupDate,
     };
   },
 
@@ -910,6 +1116,32 @@ export const supabaseDb = {
     const client = supabase || supabaseClient;
     if (!client) throw new Error('Supabase client not initialized');
     
+    // Check service_jobs first
+    const { data: jobData, error: jobError } = await client
+      .from('service_jobs')
+      .select(`
+        *,
+        customers (*),
+        vehicles (*),
+        bill_items (*),
+        mechanics (*),
+        payments (*),
+        services (*, mechanics (*)),
+        advances (*),
+        job_timers (*),
+        followups (*)
+      `)
+      .eq('id', id)
+      .eq('garage_id', garageId)
+      .maybeSingle();
+
+    if (jobData) {
+      return {
+        ...mapServiceJob(jobData),
+        invoiceNumber: '',
+      } as unknown as Bill;
+    }
+
     const { data, error } = await client
       .from('bills')
       .select(`
@@ -1226,6 +1458,22 @@ export const supabaseDb = {
     const client = supabase || supabaseClient;
     if (!client) throw new Error('Supabase client not initialized');
 
+    const { data: jobCheck } = await client
+      .from('service_jobs')
+      .select('id')
+      .eq('id', id)
+      .eq('garage_id', garageId)
+      .maybeSingle();
+
+    if (jobCheck) {
+      if (input.jobStatus === 'Delivered') {
+        await supabaseDb.updateServiceJob(garageId, id, input, client);
+        return await supabaseDb.generateBillFromJob(garageId, id, client);
+      } else {
+        return await supabaseDb.updateServiceJob(garageId, id, input, client) as unknown as Bill;
+      }
+    }
+
     const { 
       date, labour, notes, paymentStatus, items,
       mechanicId, mechanicName, expectedPaymentDate, followupReminderDate, paymentNotes,
@@ -1478,13 +1726,28 @@ export const supabaseDb = {
           payments (*)
         `)
         .eq('customer_id', cid)
-        .eq('garage_id', garageId)
-        .order('date', { ascending: false });
+        .eq('garage_id', garageId);
+
+      const { data: customerJobs } = await client
+        .from('service_jobs')
+        .select(`
+          *,
+          vehicles (*),
+          mechanics (*),
+          payments (*)
+        `)
+        .eq('customer_id', cid)
+        .eq('garage_id', garageId);
+
+      const mappedBills = [
+        ...(customerJobs || []).map((j: any) => ({ ...mapServiceJob(j), invoiceNumber: '' })),
+        ...(customerBills || []).map(mapBill)
+      ].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
 
       results.push({
         customer: mapCustomer(customer),
         vehicles: (customerVehicles || []).map(mapVehicle),
-        bills: (customerBills || []).map(mapBill),
+        bills: mappedBills,
       });
     }
 
@@ -1541,5 +1804,576 @@ export const supabaseDb = {
       .eq('garage_id', garageId);
     if (error) throw error;
     return true;
+  },
+
+  getServiceJobs: async (garageId: string, supabase?: any): Promise<ServiceJob[]> => {
+    const client = supabase || supabaseClient;
+    if (!client) throw new Error('Supabase client not initialized');
+    const { data, error } = await client
+      .from('service_jobs')
+      .select(`
+        *,
+        customers (*),
+        vehicles (*),
+        bill_items (*),
+        mechanics (*),
+        payments (*),
+        services (*, mechanics (*)),
+        advances (*),
+        job_timers (*),
+        followups (*)
+      `)
+      .eq('garage_id', garageId)
+      .order('date', { ascending: false });
+    if (error) throw error;
+    return (data || []).map(mapServiceJob);
+  },
+
+  getServiceJobById: async (garageId: string, id: string, supabase?: any): Promise<ServiceJob | null> => {
+    const client = supabase || supabaseClient;
+    if (!client) throw new Error('Supabase client not initialized');
+    const { data, error } = await client
+      .from('service_jobs')
+      .select(`
+        *,
+        customers (*),
+        vehicles (*),
+        bill_items (*),
+        mechanics (*),
+        payments (*),
+        services (*, mechanics (*)),
+        advances (*),
+        job_timers (*),
+        followups (*)
+      `)
+      .eq('id', id)
+      .eq('garage_id', garageId)
+      .maybeSingle();
+    if (error) throw error;
+    return data ? mapServiceJob(data) : null;
+  },
+
+  createServiceJob: async (garageId: string, input: CreateBillInput, supabase?: any): Promise<ServiceJob> => {
+    const client = supabase || supabaseClient;
+    if (!client) throw new Error('Supabase client not initialized');
+
+    const { 
+      customerId, customerName, customerPhone, 
+      vehicleId, vehicleNumber, vehicleBrand, vehicleModel,
+      date, labour, notes, paymentStatus, items,
+      mechanicId, mechanicName, payments: initialPayments,
+      expectedPaymentDate, followupReminderDate, paymentNotes,
+      jobStatus, workRequested, services: inputServices, advances: inputAdvances,
+      overallDiscount, previousDueAdded, previousDueBillIds,
+      overallDiscountType, overallDiscountValue,
+      serviceNotes, showServiceNotes
+    } = input;
+
+    let resolvedCustomerId = customerId;
+    if (!resolvedCustomerId && customerPhone && customerName) {
+      const cleanPhone = customerPhone.trim();
+      const existing = await supabaseDb.getCustomerByPhone(garageId, cleanPhone, client);
+      if (existing) {
+        resolvedCustomerId = existing.id;
+      } else {
+        const newCust = await supabaseDb.createCustomer(garageId, customerName, cleanPhone, client);
+        resolvedCustomerId = newCust.id;
+      }
+    }
+    if (!resolvedCustomerId) throw new Error('Customer information missing.');
+
+    let resolvedVehicleId = vehicleId;
+    if (!resolvedVehicleId && vehicleNumber && vehicleBrand && vehicleModel) {
+      const cleanNum = vehicleNumber.toUpperCase().replace(/\s+/g, '-').trim();
+      const { data: existingVeh } = await client
+        .from('vehicles')
+        .select('id')
+        .eq('garage_id', garageId)
+        .eq('vehicle_number', cleanNum)
+        .maybeSingle();
+
+      if (existingVeh) {
+        resolvedVehicleId = existingVeh.id;
+      } else {
+        const newVeh = await supabaseDb.createVehicle(garageId, resolvedCustomerId, cleanNum, vehicleBrand, vehicleModel, client);
+        resolvedVehicleId = newVeh.id;
+      }
+    }
+    if (!resolvedVehicleId) throw new Error('Vehicle information missing.');
+
+    if (resolvedVehicleId && vehicleBrand && vehicleModel) {
+      await supabaseDb.learnVehicleSuggestion(garageId, vehicleBrand, vehicleModel, client).catch(console.error);
+    }
+    if (workRequested) {
+      const complaints = workRequested.split(',').map((s: string) => s.trim()).filter(Boolean);
+      for (const comp of complaints) {
+        await supabaseDb.learnComplaintSuggestion(garageId, comp, client).catch(console.error);
+      }
+    }
+
+    const { data: existingActive } = await client
+      .from('service_jobs')
+      .select('id')
+      .eq('garage_id', garageId)
+      .eq('vehicle_id', resolvedVehicleId)
+      .not('job_status', 'eq', 'Delivered')
+      .not('job_status', 'eq', 'Cancelled')
+      .maybeSingle();
+
+    if (existingActive) {
+      const activeInfo = await supabaseDb.getServiceJobById(garageId, existingActive.id, client);
+      if (activeInfo) return activeInfo;
+    }
+
+    let resolvedMechanicId = mechanicId || null;
+    if (mechanicName && mechanicName.trim()) {
+      const mech = await supabaseDb.createMechanic(garageId, mechanicName, client);
+      resolvedMechanicId = mech.id;
+    }
+
+    const { data: jobData, error: jobError } = await client
+      .from('service_jobs')
+      .insert({
+        garage_id: garageId,
+        vehicle_id: resolvedVehicleId,
+        customer_id: resolvedCustomerId,
+        date: date || new Date().toISOString(),
+        labour: Number(labour || 0),
+        total: 0.00,
+        notes: notes || '',
+        payment_status: paymentStatus || 'PENDING',
+        mechanic_id: resolvedMechanicId,
+        expected_payment_date: expectedPaymentDate || null,
+        followup_reminder_date: followupReminderDate || null,
+        payment_notes: paymentNotes || null,
+        job_status: jobStatus || 'Waiting',
+        work_requested: workRequested || '',
+        overall_discount: Number(overallDiscount || 0),
+        previous_due_added: Number(previousDueAdded || 0),
+        previous_due_bill_ids: previousDueBillIds || [],
+        overall_discount_type: overallDiscountType || 'FLAT',
+        overall_discount_value: Number(overallDiscountValue || 0),
+        service_notes: serviceNotes || '',
+        show_service_notes: showServiceNotes !== undefined ? showServiceNotes : true
+      })
+      .select()
+      .single();
+
+    if (jobError) throw jobError;
+
+    if (items && items.length > 0) {
+      const itemsPayload = items.map((item) => ({
+        garage_id: garageId,
+        job_id: jobData.id,
+        name: item.name.trim(),
+        price: Number(item.finalPrice || item.unitPrice || 0),
+        quantity: Number(item.quantity || 1),
+        unit_price: Number(item.unitPrice || 0),
+        discount_percentage: Number(item.discountPercentage || 0),
+        discount_amount: Number(item.discountAmount || 0),
+        final_price: Number(item.finalPrice || 0),
+        discount_type: item.discountType || 'PERCENT',
+        discount_value: Number(item.discountValue || 0)
+      }));
+      const { error: itemsError } = await client.from('bill_items').insert(itemsPayload);
+      if (itemsError) throw itemsError;
+    }
+
+    if (inputServices && inputServices.length > 0) {
+      const servicesPayload = [];
+      for (const s of inputServices) {
+        let sMechId = s.mechanicId || null;
+        let sWorkType = s.mechanicType || 'Salary';
+        if (s.mechanicName && s.mechanicName.trim()) {
+          const mech = await supabaseDb.createMechanic(garageId, s.mechanicName, client);
+          sMechId = mech.id;
+          sWorkType = mech.workType;
+        } else if (sMechId) {
+          const { data: mech } = await client.from('mechanics').select('work_type').eq('id', sMechId).single();
+          if (mech) sWorkType = mech.work_type;
+        }
+
+        servicesPayload.push({
+          garage_id: garageId,
+          job_id: jobData.id,
+          name: s.name.trim(),
+          mechanic_id: sMechId,
+          labour_charge: Number(s.labourCharge || 0),
+          discount: Number(s.discount || 0),
+          final_charge: Number(s.finalCharge || 0),
+          mechanic_type: sWorkType,
+          commission_rate: Number(s.commissionRate || 0),
+          working_time: Number(s.workingTime || 0),
+          start_time: s.startTime || null,
+          end_time: s.endTime || null,
+          discount_type: s.discountType || 'FLAT',
+          discount_value: Number(s.discountValue || 0)
+        });
+      }
+      const { error: servicesError } = await client.from('services').insert(servicesPayload);
+      if (servicesError) throw servicesError;
+    }
+
+    if (initialPayments && initialPayments.length > 0) {
+      const paymentsPayload = initialPayments
+        .filter(p => p.amount > 0)
+        .map(p => ({
+          garage_id: garageId,
+          job_id: jobData.id,
+          payment_method: p.paymentMethod,
+          amount: Number(p.amount),
+          notes: p.notes || '',
+          payment_date: date || new Date().toISOString(),
+        }));
+
+      if (paymentsPayload.length > 0) {
+        const { error: paysError } = await client.from('payments').insert(paymentsPayload);
+        if (paysError) throw paysError;
+      }
+    }
+
+    if (inputAdvances && inputAdvances.length > 0) {
+      const advancesPayload = inputAdvances
+        .filter(adv => adv.amount > 0)
+        .map(adv => ({
+          garage_id: garageId,
+          job_id: jobData.id,
+          amount: Number(adv.amount),
+          payment_mode: adv.paymentMode,
+          created_at: date || new Date().toISOString(),
+        }));
+
+      if (advancesPayload.length > 0) {
+        const { error: advsError } = await client.from('advances').insert(advancesPayload);
+        if (advsError) throw advsError;
+      }
+    }
+
+    if (paymentStatus !== 'PAID' && expectedPaymentDate) {
+      await client.from('followups').insert({
+        garage_id: garageId,
+        job_id: jobData.id,
+        followup_date: expectedPaymentDate,
+        notes: paymentNotes,
+      });
+    }
+
+    const freshJob = await supabaseDb.getServiceJobById(garageId, jobData.id, client);
+    return freshJob!;
+  },
+
+  updateServiceJob: async (garageId: string, id: string, input: UpdateBillInput, supabase?: any): Promise<ServiceJob> => {
+    const client = supabase || supabaseClient;
+    if (!client) throw new Error('Supabase client not initialized');
+
+    const { 
+      date, labour, notes, paymentStatus, items,
+      mechanicId, mechanicName, expectedPaymentDate, followupReminderDate, paymentNotes,
+      jobStatus, workRequested, services: inputServices, advances: inputAdvances,
+      overallDiscount, previousDueAdded, previousDueBillIds,
+      overallDiscountType, overallDiscountValue,
+      serviceNotes, showServiceNotes
+    } = input;
+
+    let resolvedMechanicId = mechanicId || null;
+    if (mechanicName && mechanicName.trim()) {
+      const mech = await supabaseDb.createMechanic(garageId, mechanicName, client);
+      resolvedMechanicId = mech.id;
+    }
+
+    const { error: jobError } = await client
+      .from('service_jobs')
+      .update({
+        date: date,
+        labour: Number(labour),
+        notes: notes ? notes.trim() : '',
+        payment_status: paymentStatus,
+        mechanic_id: resolvedMechanicId,
+        expected_payment_date: expectedPaymentDate || null,
+        followup_reminder_date: followupReminderDate || null,
+        payment_notes: paymentNotes || null,
+        job_status: jobStatus || 'Waiting',
+        work_requested: workRequested || '',
+        overall_discount: Number(overallDiscount || 0),
+        previous_due_added: Number(previousDueAdded || 0),
+        previous_due_bill_ids: previousDueBillIds || [],
+        overall_discount_type: overallDiscountType || 'FLAT',
+        overall_discount_value: Number(overallDiscountValue || 0),
+        service_notes: serviceNotes || '',
+        show_service_notes: showServiceNotes !== undefined ? showServiceNotes : true
+      })
+      .eq('id', id)
+      .eq('garage_id', garageId);
+
+    if (jobError) throw jobError;
+
+    await client.from('bill_items').delete().eq('job_id', id);
+    await client.from('services').delete().eq('job_id', id);
+    await client.from('advances').delete().eq('job_id', id);
+    await client.from('followups').delete().eq('job_id', id);
+
+    if (items && items.length > 0) {
+      const itemsPayload = items.map((item) => ({
+        garage_id: garageId,
+        job_id: id,
+        name: item.name.trim(),
+        price: Number(item.finalPrice || item.unitPrice || 0),
+        quantity: Number(item.quantity || 1),
+        unit_price: Number(item.unitPrice || 0),
+        discount_percentage: Number(item.discountPercentage || 0),
+        discount_amount: Number(item.discountAmount || 0),
+        final_price: Number(item.finalPrice || 0),
+        discount_type: item.discountType || 'PERCENT',
+        discount_value: Number(item.discountValue || 0)
+      }));
+      const { error: itemsError } = await client.from('bill_items').insert(itemsPayload);
+      if (itemsError) throw itemsError;
+    }
+
+    if (inputServices && inputServices.length > 0) {
+      const servicesPayload = [];
+      for (const s of inputServices) {
+        let sMechId = s.mechanicId || null;
+        let sWorkType = s.mechanicType || 'Salary';
+        if (s.mechanicName && s.mechanicName.trim()) {
+          const mech = await supabaseDb.createMechanic(garageId, s.mechanicName, client);
+          sMechId = mech.id;
+          sWorkType = mech.workType;
+        } else if (sMechId) {
+          const { data: mech } = await client.from('mechanics').select('work_type').eq('id', sMechId).single();
+          if (mech) sWorkType = mech.work_type;
+        }
+
+        servicesPayload.push({
+          garage_id: garageId,
+          job_id: id,
+          name: s.name.trim(),
+          mechanic_id: sMechId,
+          labour_charge: Number(s.labourCharge || 0),
+          discount: Number(s.discount || 0),
+          final_charge: Number(s.finalCharge || 0),
+          mechanic_type: sWorkType,
+          commission_rate: Number(s.commissionRate || 0),
+          working_time: Number(s.workingTime || 0),
+          start_time: s.startTime || null,
+          end_time: s.endTime || null,
+          discount_type: s.discountType || 'FLAT',
+          discount_value: Number(s.discountValue || 0)
+        });
+      }
+      const { error: servicesError } = await client.from('services').insert(servicesPayload);
+      if (servicesError) throw servicesError;
+    }
+
+    if (inputAdvances && inputAdvances.length > 0) {
+      const advancesPayload = inputAdvances
+        .filter(adv => adv.amount > 0)
+        .map(adv => ({
+          garage_id: garageId,
+          job_id: id,
+          amount: Number(adv.amount),
+          payment_mode: adv.paymentMode,
+          created_at: date || new Date().toISOString(),
+        }));
+
+      if (advancesPayload.length > 0) {
+        const { error: advsError } = await client.from('advances').insert(advancesPayload);
+        if (advsError) throw advsError;
+      }
+    }
+
+    if (paymentStatus !== 'PAID' && expectedPaymentDate) {
+      await client.from('followups').insert({
+        garage_id: garageId,
+        job_id: id,
+        followup_date: expectedPaymentDate,
+        notes: paymentNotes,
+      });
+    }
+
+    const freshJob = await supabaseDb.getServiceJobById(garageId, id, client);
+    return freshJob!;
+  },
+
+  generateBillFromJob: async (garageId: string, jobId: string, supabase?: any): Promise<Bill> => {
+    const client = supabase || supabaseClient;
+    if (!client) throw new Error('Supabase client not initialized');
+
+    const { data: job, error: jobError } = await client
+      .from('service_jobs')
+      .select('*')
+      .eq('id', jobId)
+      .eq('garage_id', garageId)
+      .single();
+
+    if (jobError) throw jobError;
+
+    const { data: billsCount, error: countError } = await client
+      .from('bills')
+      .select('invoice_number')
+      .eq('garage_id', garageId);
+
+    if (countError) throw countError;
+
+    const lastInvoiceNumber = billsCount.length > 0 
+      ? Math.max(...billsCount.map((b: any) => {
+          const match = b.invoice_number.match(/GB-(\d+)/);
+          return match ? parseInt(match[1]) : 1000;
+        }))
+      : 1000;
+    const invoiceNumber = `GB-${lastInvoiceNumber + 1}`;
+
+    const { data: billData, error: billError } = await client
+      .from('bills')
+      .insert({
+        garage_id: garageId,
+        vehicle_id: job.vehicle_id,
+        customer_id: job.customer_id,
+        invoice_number: invoiceNumber,
+        date: new Date().toISOString(),
+        labour: Number(job.labour),
+        total: Number(job.total),
+        notes: job.notes,
+        payment_status: job.payment_status,
+        mechanic_id: job.mechanic_id,
+        received_amount: Number(job.received_amount),
+        remaining_amount: Number(job.remaining_amount),
+        expected_payment_date: job.expected_payment_date,
+        followup_reminder_date: job.followup_reminder_date,
+        payment_notes: job.payment_notes,
+        job_status: 'Delivered',
+        work_requested: job.work_requested,
+        job_start_time: job.job_start_time,
+        job_end_time: job.job_end_time || new Date().toISOString(),
+        total_working_time: Number(job.total_working_time),
+        pause_duration: Number(job.pause_duration),
+        actual_working_duration: Number(job.actual_working_duration),
+        timer_state: 'COMPLETED',
+        last_timer_action_at: new Date().toISOString(),
+        parts_total: Number(job.parts_total),
+        parts_discount: Number(job.parts_discount),
+        labour_total: Number(job.labour_total),
+        labour_discount: Number(job.labour_discount),
+        overall_discount: Number(job.overall_discount),
+        advance_received: Number(job.advance_received),
+        previous_due_added: Number(job.previous_due_added),
+        previous_due_bill_ids: job.previous_due_bill_ids,
+        overall_discount_type: job.overall_discount_type,
+        overall_discount_value: Number(job.overall_discount_value),
+        service_notes: job.service_notes,
+        show_service_notes: job.show_service_notes
+      })
+      .select()
+      .single();
+
+    if (billError) throw billError;
+
+    await client.from('bill_items').update({ bill_id: billData.id }).eq('job_id', jobId);
+    await client.from('services').update({ bill_id: billData.id }).eq('job_id', jobId);
+    await client.from('payments').update({ bill_id: billData.id }).eq('job_id', jobId);
+    await client.from('advances').update({ bill_id: billData.id }).eq('job_id', jobId);
+    await client.from('job_timers').update({ bill_id: billData.id }).eq('job_id', jobId);
+    await client.from('followups').update({ bill_id: billData.id }).eq('job_id', jobId);
+
+    await client.from('service_jobs').delete().eq('id', jobId);
+
+    const freshBill = await supabaseDb.getBillById(garageId, billData.id, client);
+    return freshBill!;
+  },
+
+  getVehicleSuggestions: async (garageId: string, supabase?: any): Promise<VehicleSuggestion[]> => {
+    const client = supabase || supabaseClient;
+    if (!client) return [];
+    const { data, error } = await client
+      .from('vehicle_suggestions')
+      .select('*')
+      .eq('garage_id', garageId);
+    if (error) {
+      console.error(error);
+      return [];
+    }
+    return (data || []).map((v: any) => ({
+      id: v.id,
+      brand: v.brand,
+      model: v.model
+    }));
+  },
+
+  getComplaintSuggestions: async (garageId: string, supabase?: any): Promise<ComplaintSuggestion[]> => {
+    const client = supabase || supabaseClient;
+    if (!client) return [];
+    const { data, error } = await client
+      .from('complaint_suggestions')
+      .select('*')
+      .eq('garage_id', garageId);
+    if (error) {
+      console.error(error);
+      return [];
+    }
+    return (data || []).map((c: any) => ({
+      id: c.id,
+      name: c.name
+    }));
+  },
+
+  learnVehicleSuggestion: async (garageId: string, brand: string, model: string, supabase?: any): Promise<VehicleSuggestion> => {
+    const client = supabase || supabaseClient;
+    if (!client) throw new Error('Supabase client not initialized');
+    const cleanB = brand.trim();
+    const cleanM = model.trim();
+
+    const { data: existing } = await client
+      .from('vehicle_suggestions')
+      .select('*')
+      .eq('garage_id', garageId)
+      .eq('brand', cleanB)
+      .eq('model', cleanM)
+      .maybeSingle();
+
+    if (existing) {
+      return { id: existing.id, brand: existing.brand, model: existing.model };
+    }
+
+    const { data, error } = await client
+      .from('vehicle_suggestions')
+      .insert({
+        garage_id: garageId,
+        brand: cleanB,
+        model: cleanM
+      })
+      .select()
+      .single();
+
+    if (error) throw error;
+    return { id: data.id, brand: data.brand, model: data.model };
+  },
+
+  learnComplaintSuggestion: async (garageId: string, name: string, supabase?: any): Promise<ComplaintSuggestion> => {
+    const client = supabase || supabaseClient;
+    if (!client) throw new Error('Supabase client not initialized');
+    const cleanN = name.trim();
+
+    const { data: existing } = await client
+      .from('complaint_suggestions')
+      .select('*')
+      .eq('garage_id', garageId)
+      .eq('name', cleanN)
+      .maybeSingle();
+
+    if (existing) {
+      return { id: existing.id, name: existing.name };
+    }
+
+    const { data, error } = await client
+      .from('complaint_suggestions')
+      .insert({
+        garage_id: garageId,
+        name: cleanN
+      })
+      .select()
+      .single();
+
+    if (error) throw error;
+    return { id: data.id, name: data.name };
   }
 };

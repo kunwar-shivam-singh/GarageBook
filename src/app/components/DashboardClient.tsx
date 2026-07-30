@@ -31,6 +31,7 @@ interface DashboardClientProps {
 export default function DashboardClient({ initialBills, settings }: DashboardClientProps) {
   const [bills, setBills] = useState<Bill[]>(initialBills);
   const [priorities, setPriorities] = useState<Record<string, string>>({});
+  const [dashboardFilter, setDashboardFilter] = useState<'All' | 'Today' | 'Open' | 'Working' | 'Completed' | 'PendingDelivery' | 'PendingPayment'>('All');
 
   useEffect(() => {
     if (typeof window !== 'undefined') {
@@ -186,56 +187,53 @@ export default function DashboardClient({ initialBills, settings }: DashboardCli
   const today = new Date();
   
   const metrics = useMemo(() => {
-    // Today's checked-in vehicles
-    const todayVehicles = bills.filter(b => isSameDay(b.date, today)).length;
+    // 1. Today's checked-in vehicles (any status)
+    const todayVehiclesList = bills.filter(b => isSameDay(b.date, today));
+    const todayVehicles = todayVehiclesList.length;
     
-    // Open Jobs (Not Completed/Delivered and Not Paid)
-    const openJobs = bills.filter(b => 
-      (b.jobStatus as string) !== 'Completed' &&
-      (b.jobStatus as string) !== 'Work Completed' &&
-      (b.jobStatus as string) !== 'Ready for Delivery' &&
-      (b.jobStatus as string) !== 'Delivered' && 
-      (b.jobStatus as string) !== 'Cancelled' &&
-      b.paymentStatus !== 'PAID'
-    );
-    const openJobsCount = openJobs.length;
+    // 2. Open Jobs (Active Jobs in workshop - no invoice number yet)
+    const openJobsList = bills.filter(b => !b.invoiceNumber && (b.jobStatus as string) !== 'Cancelled');
+    const openJobsCount = openJobsList.length;
 
-    // Active Working Jobs
-    const workingJobsCount = bills.filter(b => b.jobStatus === 'Working').length;
+    // 3. Working Jobs (Active jobs currently Assigned or Working)
+    const workingJobsList = bills.filter(b => !b.invoiceNumber && ((b.jobStatus as string) === 'Working' || (b.jobStatus as string) === 'Assigned'));
+    const workingJobsCount = workingJobsList.length;
 
-    // Completed Today (Ready for Delivery, Completed or Delivered today)
-    const completedTodayCount = bills.filter(b => 
-      ((b.jobStatus as string) === 'Ready for Delivery' || 
-       (b.jobStatus as string) === 'Completed' || 
-       (b.jobStatus as string) === 'Work Completed' || 
+    // 4. Completed Today (Ready for Delivery, Completed or Delivered today)
+    const completedTodayList = bills.filter(b => 
+      ((b.jobStatus as string) === 'Completed' || 
+       (b.jobStatus as string) === 'Ready for Delivery' || 
        (b.jobStatus as string) === 'Delivered') && 
       isSameDay(b.date, today)
-    ).length;
+    );
+    const completedTodayCount = completedTodayList.length;
 
-    // Pending Deliveries (Ready for Delivery/Completed status)
-    const pendingDeliveriesCount = bills.filter(b => 
-      (b.jobStatus as string) === 'Ready for Delivery' || 
-      (b.jobStatus as string) === 'Completed' || 
-      (b.jobStatus as string) === 'Work Completed'
-    ).length;
+    // 5. Pending Deliveries (Bill generated, but not yet Delivered)
+    const pendingDeliveriesList = bills.filter(b => b.invoiceNumber && (b.jobStatus as string) !== 'Delivered' && (b.jobStatus as string) !== 'Cancelled');
+    const pendingDeliveriesCount = pendingDeliveriesList.length;
 
-    // Pending Payments (Any remaining dues)
-    const pendingPaymentsCount = bills.filter(b => b.remainingAmount > 0 && (b.jobStatus as string) !== 'Cancelled').length;
+    // 6. Pending Payments (Bill generated already and has unpaid balance)
+    const pendingPaymentsList = bills.filter(b => b.invoiceNumber && b.remainingAmount > 0 && (b.jobStatus as string) !== 'Cancelled');
+    const pendingPaymentsCount = pendingPaymentsList.length;
 
     return {
+      todayVehiclesList,
       todayVehicles,
-      openJobs,
+      openJobsList,
       openJobsCount,
+      workingJobsList,
       workingJobsCount,
+      completedTodayList,
       completedTodayCount,
+      pendingDeliveriesList,
       pendingDeliveriesCount,
+      pendingPaymentsList,
       pendingPaymentsCount
     };
   }, [bills]);
 
   const {
     todayVehicles,
-    openJobs,
     openJobsCount,
     workingJobsCount,
     completedTodayCount,
@@ -250,15 +248,42 @@ export default function DashboardClient({ initialBills, settings }: DashboardCli
       case 'Assigned': return 2;
       case 'Waiting': return 3;
       case 'Ready for Delivery': return 4;
-      default: return 3; // Default to waiting priority
+      default: return 3;
     }
   };
 
-  const sortedActiveQueue = useMemo(() => {
-    return [...openJobs].sort((a, b) => {
+  const filteredDisplayList = useMemo(() => {
+    let list: Bill[] = [];
+    switch (dashboardFilter) {
+      case 'Today':
+        list = metrics.todayVehiclesList;
+        break;
+      case 'Open':
+        list = metrics.openJobsList;
+        break;
+      case 'Working':
+        list = metrics.workingJobsList;
+        break;
+      case 'Completed':
+        list = metrics.completedTodayList;
+        break;
+      case 'PendingDelivery':
+        list = metrics.pendingDeliveriesList;
+        break;
+      case 'PendingPayment':
+        list = metrics.pendingPaymentsList;
+        break;
+      default:
+        // Default to showing Open Jobs (all active service cards)
+        list = metrics.openJobsList;
+        break;
+    }
+    return [...list].sort((a, b) => {
+      if (a.invoiceNumber && !b.invoiceNumber) return 1;
+      if (!a.invoiceNumber && b.invoiceNumber) return -1;
       return getStatusPriority(a.jobStatus) - getStatusPriority(b.jobStatus);
     });
-  }, [openJobs]);
+  }, [dashboardFilter, metrics]);
 
   // Recalculate bill aggregates and save via server action
   const recalculateAndSave = async (bill: Bill, updatedFields: Partial<Bill>) => {
@@ -317,7 +342,7 @@ export default function DashboardClient({ initialBills, settings }: DashboardCli
 
     try {
       const saved = await updateBill(bill.id, payload);
-      setBills(prev => prev.map(b => b.id === bill.id ? { ...b, ...saved } : b));
+      setBills(prev => prev.map(b => b.id === bill.id ? { ...b, ...saved, id: saved.id } : b));
       toast.success('Workshop operational job card updated!');
       if (typeof window !== 'undefined') {
         window.dispatchEvent(new CustomEvent('gb-data-changed'));
@@ -565,41 +590,78 @@ export default function DashboardClient({ initialBills, settings }: DashboardCli
           
           {/* 1. TOP COMPACT SUMMARY CARDS (NO REVENUE GRAPH OR FINANCIAL VALUES) */}
           <div className="grid grid-cols-2 lg:grid-cols-6 gap-3.5">
-            <div className="bg-white border border-slate-200 rounded-2xl p-4 shadow-sm text-center">
+            <button
+              type="button"
+              onClick={() => setDashboardFilter(dashboardFilter === 'Today' ? 'All' : 'Today')}
+              className={`bg-white border rounded-2xl p-4 shadow-sm text-center transition-all active:scale-95 hover:border-blue-300 ${
+                dashboardFilter === 'Today' ? 'border-blue-500 ring-2 ring-blue-100 bg-blue-50/10' : 'border-slate-200'
+              }`}
+            >
               <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block mb-1">Today&apos;s Vehicles</span>
               <span className="text-xl font-black text-slate-900 font-mono">{todayVehicles}</span>
-            </div>
-            <div className="bg-white border border-slate-200 rounded-2xl p-4 shadow-sm text-center">
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setDashboardFilter(dashboardFilter === 'Open' ? 'All' : 'Open')}
+              className={`bg-white border rounded-2xl p-4 shadow-sm text-center transition-all active:scale-95 hover:border-blue-300 ${
+                dashboardFilter === 'Open' ? 'border-blue-500 ring-2 ring-blue-100 bg-blue-50/10' : 'border-slate-200'
+              }`}
+            >
               <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block mb-1">Open Jobs</span>
               <span className="text-xl font-black text-slate-950 font-mono">{openJobsCount}</span>
-            </div>
-            <div className="bg-white border border-slate-200 rounded-2xl p-4 shadow-sm text-center">
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setDashboardFilter(dashboardFilter === 'Working' ? 'All' : 'Working')}
+              className={`bg-white border rounded-2xl p-4 shadow-sm text-center transition-all active:scale-95 hover:border-amber-300 ${
+                dashboardFilter === 'Working' ? 'border-amber-500 ring-2 ring-amber-100 bg-amber-50/10' : 'border-slate-200'
+              }`}
+            >
               <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block mb-1">Working Jobs</span>
               <span className="text-xl font-black text-amber-600 font-mono">{workingJobsCount}</span>
-            </div>
-            <div className="bg-white border border-slate-200 rounded-2xl p-4 shadow-sm text-center">
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setDashboardFilter(dashboardFilter === 'Completed' ? 'All' : 'Completed')}
+              className={`bg-white border rounded-2xl p-4 shadow-sm text-center transition-all active:scale-95 hover:border-green-300 ${
+                dashboardFilter === 'Completed' ? 'border-green-500 ring-2 ring-green-100 bg-green-50/10' : 'border-slate-200'
+              }`}
+            >
               <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block mb-1">Completed Today</span>
               <span className="text-xl font-black text-green-700 font-mono">{completedTodayCount}</span>
-            </div>
-            <div className="bg-white border border-slate-200 rounded-2xl p-4 shadow-sm text-center">
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setDashboardFilter(dashboardFilter === 'PendingDelivery' ? 'All' : 'PendingDelivery')}
+              className={`bg-white border rounded-2xl p-4 shadow-sm text-center transition-all active:scale-95 hover:border-blue-300 ${
+                dashboardFilter === 'PendingDelivery' ? 'border-blue-500 ring-2 ring-blue-100 bg-blue-50/10' : 'border-slate-200'
+              }`}
+            >
               <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block mb-1">Pending Deliveries</span>
               <span className="text-xl font-black text-blue-600 font-mono">{pendingDeliveriesCount}</span>
-            </div>
-            <div className="bg-white border border-slate-200 rounded-2xl p-4 shadow-sm text-center">
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setDashboardFilter(dashboardFilter === 'PendingPayment' ? 'All' : 'PendingPayment')}
+              className={`bg-white border rounded-2xl p-4 shadow-sm text-center transition-all active:scale-95 hover:border-red-300 ${
+                dashboardFilter === 'PendingPayment' ? 'border-red-500 ring-2 ring-red-100 bg-red-50/10' : 'border-slate-200'
+              }`}
+            >
               <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block mb-1">Pending Payments</span>
               <span className="text-xl font-black text-red-600 font-mono">{pendingPaymentsCount}</span>
-            </div>
+            </button>
           </div>
 
           {/* 2. QUICK ACTION LARGE BUTTONS */}
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
             <Link href="/entry/new" className="bg-blue-600 hover:bg-blue-700 text-white rounded-2xl p-5 shadow-md flex flex-col items-center justify-center text-center font-extrabold text-sm gap-2 transition-transform active:scale-95">
-              <UserPlus className="h-6 w-6" />
-              <span>➕ New Customer</span>
-            </Link>
-            <Link href="/entry/new" className="bg-success hover:bg-success-hover text-white rounded-2xl p-5 shadow-md flex flex-col items-center justify-center text-center font-extrabold text-sm gap-2 transition-transform active:scale-95">
-              <Receipt className="h-6 w-6" />
-              <span>🧾 New Bill</span>
+              <Plus className="h-6 w-6" />
+              <span>➕ New Job</span>
             </Link>
             <Link href="/search" className="bg-indigo-600 hover:bg-indigo-700 text-white rounded-2xl p-5 shadow-md flex flex-col items-center justify-center text-center font-extrabold text-sm gap-2 transition-transform active:scale-95">
               <Search className="h-6 w-6" />
@@ -618,18 +680,26 @@ export default function DashboardClient({ initialBills, settings }: DashboardCli
             <div className="lg:col-span-5 space-y-4">
               <div className="flex items-center justify-between">
                 <h2 className="text-lg font-black text-slate-900 flex items-center gap-1.5">
-                  <Clock className="h-5 w-5 text-blue-600" /> Active Service Queue ({sortedActiveQueue.length})
+                  <Clock className="h-5 w-5 text-blue-600" /> {
+                    dashboardFilter === 'Today' ? `Today's Vehicles (${filteredDisplayList.length})` :
+                    dashboardFilter === 'Open' ? `Open Service Jobs (${filteredDisplayList.length})` :
+                    dashboardFilter === 'Working' ? `Working Repair Jobs (${filteredDisplayList.length})` :
+                    dashboardFilter === 'Completed' ? `Completed Today (${filteredDisplayList.length})` :
+                    dashboardFilter === 'PendingDelivery' ? `Pending Deliveries (${filteredDisplayList.length})` :
+                    dashboardFilter === 'PendingPayment' ? `Pending Payments (${filteredDisplayList.length})` :
+                    `Active Workshop Queue (${filteredDisplayList.length})`
+                  }
                 </h2>
                 <span className="text-[10px] text-slate-400 font-bold uppercase">Sorted Priority</span>
               </div>
 
               <div className="space-y-4 max-h-[70vh] overflow-y-auto pr-1">
-                {sortedActiveQueue.length === 0 ? (
+                {filteredDisplayList.length === 0 ? (
                   <div className="text-center bg-white border border-slate-200 rounded-2xl p-10 text-slate-450 italic font-semibold text-xs shadow-sm">
-                    No active vehicles in the workshop queue.
+                    No matching vehicles found.
                   </div>
                 ) : (
-                  sortedActiveQueue.map((bill) => (
+                  filteredDisplayList.map((bill) => (
                     <div key={bill.id} className="bg-white border border-slate-200 rounded-2xl p-5 shadow-sm space-y-3.5 relative hover:border-slate-350 transition-all">
                       
                       {/* Badge and Vehicle Number */}

@@ -1,6 +1,7 @@
 'use server';
 
-import { db, GarageSettings, CreateBillInput, UpdateBillInput } from '@/lib/db';
+import { db } from '@/lib/db';
+import type { GarageSettings, CreateBillInput, UpdateBillInput, Bill } from '@/lib/db';
 import { createClient } from '@/lib/supabase/server';
 import { revalidatePath } from 'next/cache';
 
@@ -104,6 +105,19 @@ export async function getCustomerOutstandingDues(phone: string) {
   return await db.getCustomerOutstandingDues(garageId, phone, supabase);
 }
 
+export async function getCustomerPhoneByVehicleNumber(vehicleNumber: string) {
+  const { garageId, supabase } = await getContext();
+  const cleanNumber = vehicleNumber.replace(/\s+/g, '').replace(/-+/g, '').toUpperCase();
+  const results = await db.searchUniversal(garageId, cleanNumber, supabase);
+  for (const r of results) {
+    const hasVeh = r.vehicles.some((v: any) => v.vehicleNumber.replace(/\s+/g, '').replace(/-+/g, '').toUpperCase() === cleanNumber);
+    if (hasVeh) {
+      return r.customer.phone;
+    }
+  }
+  return null;
+}
+
 export async function getVehiclesByCustomer(customerId: string) {
   const { garageId, supabase } = await getContext();
   return await db.getVehiclesByCustomerId(garageId, customerId, supabase);
@@ -136,21 +150,16 @@ export async function getRecentBills(limit: number = 20) {
 
 export async function getOpenServiceQueue() {
   const { garageId, supabase } = await getContext();
-  const all = await db.getRecentBills(garageId, 100, supabase);
+  const all = await db.getServiceJobs(garageId, supabase);
   return all.filter(b => 
-    (b.jobStatus as string) !== 'Completed' &&
-    (b.jobStatus as string) !== 'Work Completed' &&
-    (b.jobStatus as string) !== 'Ready for Delivery' &&
     (b.jobStatus as string) !== 'Delivered' && 
-    (b.jobStatus as string) !== 'Cancelled' && 
-    (b.jobStatus as string) !== 'Closed' &&
-    b.paymentStatus !== 'PAID'
-  );
+    (b.jobStatus as string) !== 'Cancelled'
+  ) as unknown as Bill[];
 }
 
 export async function createBill(input: CreateBillInput) {
   const { garageId, supabase } = await getContext();
-  const bill = await db.createBill(garageId, input, supabase);
+  const bill = await db.createServiceJob(garageId, input, supabase);
   revalidatePath('/');
   revalidatePath('/bills');
   revalidatePath('/search');
@@ -158,7 +167,7 @@ export async function createBill(input: CreateBillInput) {
   revalidatePath('/reports');
   revalidatePath('/dashboard');
   revalidatePath('/queue');
-  return bill;
+  return bill as unknown as Bill;
 }
 
 export async function updateBill(id: string, input: UpdateBillInput) {
@@ -172,6 +181,7 @@ export async function updateBill(id: string, input: UpdateBillInput) {
   revalidatePath('/reports');
   revalidatePath('/dashboard');
   revalidatePath('/queue');
+  revalidatePath('/working');
   return bill;
 }
 
@@ -180,6 +190,7 @@ export async function logTimerAction(billId: string, action: 'START' | 'PAUSE' |
   const updated = await db.logTimerAction(garageId, billId, action, supabase);
   revalidatePath('/');
   revalidatePath('/queue');
+  revalidatePath('/working');
   revalidatePath(`/bill/${billId}`);
   return updated;
 }
@@ -209,17 +220,17 @@ export async function getMechanics() {
   return await db.getMechanics(garageId, supabase);
 }
 
-export async function createMechanic(name: string, workType: 'Salary' | 'Independent' = 'Salary', commissionRate: number = 0) {
+export async function createMechanic(name: string, workType: 'Salary' | 'Independent' = 'Salary', commissionRate: number = 0, salary: number = 0) {
   const { garageId, supabase } = await getContext();
-  const mech = await db.createMechanic(garageId, name, workType, commissionRate, supabase);
+  const mech = await db.createMechanic(garageId, name, workType, commissionRate, supabase, salary);
   revalidatePath('/settings');
   revalidatePath('/entry/new');
   return mech;
 }
 
-export async function updateMechanic(id: string, name: string, workType?: 'Salary' | 'Independent', commissionRate?: number) {
+export async function updateMechanic(id: string, name: string, workType?: 'Salary' | 'Independent', commissionRate?: number, salary?: number) {
   const { garageId, supabase } = await getContext();
-  const mech = await db.updateMechanic(garageId, id, name, workType, commissionRate, supabase);
+  const mech = await db.updateMechanic(garageId, id, name, workType, commissionRate, supabase, salary);
   revalidatePath('/settings');
   return mech;
 }
@@ -366,4 +377,24 @@ export async function getLiveHeaderStats() {
     pendingBills,
     todaysCollection
   };
+}
+
+export async function getVehicleSuggestions() {
+  const { garageId, supabase } = await getContext();
+  return await db.getVehicleSuggestions(garageId, supabase);
+}
+
+export async function getComplaintSuggestions() {
+  const { garageId, supabase } = await getContext();
+  return await db.getComplaintSuggestions(garageId, supabase);
+}
+
+export async function learnVehicleSuggestion(brand: string, model: string) {
+  const { garageId, supabase } = await getContext();
+  return await db.learnVehicleSuggestion(garageId, brand, model, supabase);
+}
+
+export async function learnComplaintSuggestion(name: string) {
+  const { garageId, supabase } = await getContext();
+  return await db.learnComplaintSuggestion(garageId, name, supabase);
 }
