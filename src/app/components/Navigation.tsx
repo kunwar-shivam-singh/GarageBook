@@ -53,6 +53,36 @@ export default function Navigation({ garageName }: NavigationProps) {
     }
   };
 
+  // Real-time synchronization across tabs and devices
+  useEffect(() => {
+    let bc: BroadcastChannel | null = null;
+    if (typeof window !== 'undefined' && 'BroadcastChannel' in window) {
+      bc = new BroadcastChannel('gb_realtime_sync');
+      bc.onmessage = (event) => {
+        if (event.data === 'gb-data-changed') {
+          router.refresh();
+        }
+      };
+    }
+
+    const handleCustomEvent = () => {
+      if (bc) {
+        try {
+          bc.postMessage('gb-data-changed');
+        } catch (e) {
+          // Ignore closed channel errors
+        }
+      }
+      router.refresh();
+    };
+
+    window.addEventListener('gb-data-changed', handleCustomEvent);
+    return () => {
+      window.removeEventListener('gb-data-changed', handleCustomEvent);
+      if (bc) bc.close();
+    };
+  }, [router]);
+
   // 1. Swipe right from left edge to open the drawer
   useEffect(() => {
     let touchStartX = 0;

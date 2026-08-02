@@ -661,23 +661,7 @@ export default function DashboardClient({ initialBills, settings }: DashboardCli
             </button>
           </div>
 
-          {/* 2. QUICK ACTION LARGE BUTTONS */}
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-            <Link href="/entry/new" className="bg-blue-600 hover:bg-blue-700 text-white rounded-2xl p-5 shadow-md flex flex-col items-center justify-center text-center font-extrabold text-sm gap-2 transition-transform active:scale-95">
-              <Plus className="h-6 w-6" />
-              <span>➕ New Job</span>
-            </Link>
-            <Link href="/search" className="bg-indigo-600 hover:bg-indigo-700 text-white rounded-2xl p-5 shadow-md flex flex-col items-center justify-center text-center font-extrabold text-sm gap-2 transition-transform active:scale-95">
-              <Search className="h-6 w-6" />
-              <span>🔍 Search Customer</span>
-            </Link>
-            <a href="#open-queue" className="bg-slate-800 hover:bg-slate-900 text-white rounded-2xl p-5 shadow-md flex flex-col items-center justify-center text-center font-extrabold text-sm gap-2 transition-transform active:scale-95">
-              <Wrench className="h-6 w-6" />
-              <span>🚗 Open Service Queue</span>
-            </a>
-          </div>
-
-          {/* 3. RESPONSIBLE LAYOUT STRUTURE */}
+          {/* 2. RESPONSIBLE LAYOUT STRUCTURE */}
           <div className="grid grid-cols-1 lg:grid-cols-12 gap-6" id="open-queue">
             
             {/* Left: Open Queue list (takes 5 columns on desktop) */}

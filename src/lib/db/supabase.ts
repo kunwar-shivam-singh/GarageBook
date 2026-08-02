@@ -1630,75 +1630,54 @@ export const supabaseDb = {
     const cleanQuery = query.toLowerCase().trim();
     if (!cleanQuery) return [];
 
-    // Search mechanics
-    const { data: mechanicsData } = await client
-      .from('mechanics')
-      .select('id')
-      .eq('garage_id', garageId)
-      .ilike('name', `%${cleanQuery}%`);
-
-    // Search bill items
-    const { data: itemsData } = await client
-      .from('bill_items')
-      .select('bill_id')
-      .eq('garage_id', garageId)
-      .ilike('name', `%${cleanQuery}%`);
-
-    // Search customers
-    const { data: customersData, error: custError } = await client
-      .from('customers')
-      .select('*')
-      .eq('garage_id', garageId)
-      .or(`name.ilike.%${cleanQuery}%,phone.ilike.%${cleanQuery}%`);
-      
-    if (custError) throw custError;
-
-    // Search vehicles
-    const { data: vehiclesData, error: vehError } = await client
-      .from('vehicles')
-      .select('*')
-      .eq('garage_id', garageId)
-      .or(`vehicle_number.ilike.%${cleanQuery}%,brand.ilike.%${cleanQuery}%,model.ilike.%${cleanQuery}%`);
-
-    if (vehError) throw vehError;
+    // Parallel database searches across all entities
+    const [
+      { data: mechanicsData },
+      { data: itemsData },
+      { data: customersData },
+      { data: vehiclesData },
+      { data: billsData }
+    ] = await Promise.all([
+      client.from('mechanics').select('id').eq('garage_id', garageId).ilike('name', `%${cleanQuery}%`),
+      client.from('bill_items').select('bill_id').eq('garage_id', garageId).ilike('name', `%${cleanQuery}%`),
+      client.from('customers').select('*').eq('garage_id', garageId).or(`name.ilike.%${cleanQuery}%,phone.ilike.%${cleanQuery}%`),
+      client.from('vehicles').select('*').eq('garage_id', garageId).or(`vehicle_number.ilike.%${cleanQuery}%,brand.ilike.%${cleanQuery}%,model.ilike.%${cleanQuery}%`),
+      client.from('bills').select('customer_id').eq('garage_id', garageId).ilike('invoice_number', `%${cleanQuery}%`)
+    ]);
 
     // Gather matched customer IDs
     const matchedCustomerIds = new Set<string>();
     (customersData || []).forEach((c: any) => matchedCustomerIds.add(c.id));
     (vehiclesData || []).forEach((v: any) => matchedCustomerIds.add(v.customer_id));
-
-    // Search bills by invoice number
-    const { data: billsData } = await client
-      .from('bills')
-      .select('customer_id')
-      .eq('garage_id', garageId)
-      .ilike('invoice_number', `%${cleanQuery}%`);
     (billsData || []).forEach((b: any) => matchedCustomerIds.add(b.customer_id));
 
     // Gather bill-specific matching elements
     const matchedBillIds = new Set<string>();
     (itemsData || []).forEach((item: any) => matchedBillIds.add(item.bill_id));
 
-    // If matches on items, query the bills to resolve customer IDs
+    // Resolve bill items and mechanics in parallel if found
+    const secondaryResolvers = [];
+
     if (matchedBillIds.size > 0) {
-      const { data: itemBills } = await client
-        .from('bills')
-        .select('customer_id')
-        .eq('garage_id', garageId)
-        .in('id', Array.from(matchedBillIds));
-      (itemBills || []).forEach((b: any) => matchedCustomerIds.add(b.customer_id));
+      secondaryResolvers.push(
+        client.from('bills').select('customer_id').eq('garage_id', garageId).in('id', Array.from(matchedBillIds))
+      );
+    } else {
+      secondaryResolvers.push(Promise.resolve({ data: [] }));
     }
 
-    // If matches on mechanics, query bills to resolve customer IDs
     if (mechanicsData && mechanicsData.length > 0) {
       const mechIds = mechanicsData.map((m: any) => m.id);
-      const { data: mechBills } = await client
-        .from('bills')
-        .select('customer_id')
-        .eq('garage_id', garageId)
-        .in('mechanic_id', mechIds);
-      (mechBills || []).forEach((b: any) => matchedCustomerIds.add(b.customer_id));
+      secondaryResolvers.push(
+        client.from('bills').select('customer_id').eq('garage_id', garageId).in('mechanic_id', mechIds)
+      );
+    } else {
+      secondaryResolvers.push(Promise.resolve({ data: [] }));
     }
+
+    const [{ data: itemBills }, { data: mechBills }] = await Promise.all(secondaryResolvers);
+    (itemBills || []).forEach((b: any) => matchedCustomerIds.add(b.customer_id));
+    (mechBills || []).forEach((b: any) => matchedCustomerIds.add(b.customer_id));
 
     if (matchedCustomerIds.size === 0) return [];
 

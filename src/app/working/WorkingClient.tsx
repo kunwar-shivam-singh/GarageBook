@@ -124,6 +124,9 @@ export default function WorkingClient({ initialJobs, settings, mechanics }: Work
     return () => clearTimeout(timer);
   }, [serviceName]);
 
+  // Labour validation modal state
+  const [showLabourPromptJob, setShowLabourPromptJob] = useState<Bill | null>(null);
+
   const handleToggleTimer = async (job: Bill) => {
     const action = job.timerState === 'RUNNING' ? 'PAUSE' : (job.timerState === 'PAUSED' ? 'RESUME' : 'START');
     try {
@@ -136,8 +139,7 @@ export default function WorkingClient({ initialJobs, settings, mechanics }: Work
     }
   };
 
-  const handleEndJob = async (job: Bill) => {
-    if (!confirm('Are you sure you want to stop the timer and complete this service job?')) return;
+  const executeEndJob = async (job: Bill) => {
     try {
       // First COMPLETE timer
       let updated = job;
@@ -153,10 +155,23 @@ export default function WorkingClient({ initialJobs, settings, mechanics }: Work
       // Remove from list
       setJobs(prev => prev.filter(j => j.id !== job.id));
       toast.success('Job ended successfully! Card moved to Awaiting Bill Generation.');
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(new CustomEvent('gb-data-changed'));
+      }
     } catch (err) {
       console.error(err);
       toast.error('Failed to end service job.');
     }
+  };
+
+  const handleEndJob = async (job: Bill) => {
+    const hasLabour = (job.services && job.services.length > 0) || (job.labour && Number(job.labour) > 0);
+    if (!hasLabour) {
+      setShowLabourPromptJob(job);
+      return;
+    }
+    if (!confirm('Are you sure you want to stop the timer and complete this service job?')) return;
+    await executeEndJob(job);
   };
 
   const handleSavePart = async (e: React.FormEvent) => {
@@ -614,6 +629,52 @@ export default function WorkingClient({ initialJobs, settings, mechanics }: Work
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* LABOUR VALIDATION PROMPT MODAL */}
+      {showLabourPromptJob && (
+        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-white border border-slate-200 rounded-3xl p-6 shadow-2xl max-w-sm w-full space-y-4 animate-in zoom-in-95 duration-150">
+            <div className="flex items-center gap-3 text-amber-600">
+              <div className="h-10 w-10 rounded-2xl bg-amber-50 border border-amber-200 flex items-center justify-center flex-shrink-0">
+                <AlertTriangle className="h-5 w-5 text-amber-600" />
+              </div>
+              <div>
+                <h3 className="text-base font-black text-slate-900">No Labour Entered</h3>
+                <p className="text-xs text-slate-500 font-semibold">No labour charges have been entered for this vehicle.</p>
+              </div>
+            </div>
+
+            <p className="text-xs text-slate-600 font-medium leading-relaxed bg-slate-50 border border-slate-150 rounded-xl p-3">
+              No labour services are registered on this job card. Would you like to add labour charges before ending work, or continue for a parts-only customer?
+            </p>
+
+            <div className="flex flex-col gap-2 pt-2 text-xs font-black">
+              <button
+                type="button"
+                onClick={() => {
+                  const target = showLabourPromptJob;
+                  setShowLabourPromptJob(null);
+                  setActiveLabourJob(target);
+                }}
+                className="w-full py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl shadow-md transition-all active:scale-95 text-center"
+              >
+                + Add Labour Charges
+              </button>
+              <button
+                type="button"
+                onClick={async () => {
+                  const target = showLabourPromptJob;
+                  setShowLabourPromptJob(null);
+                  await executeEndJob(target);
+                }}
+                className="w-full py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl border border-slate-200 transition-all active:scale-95 text-center"
+              >
+                Continue Without Labour
+              </button>
+            </div>
           </div>
         </div>
       )}

@@ -172,18 +172,25 @@ function recalculateBillTotalsLocal(db: Schema, billId: string | null | undefine
     });
 
     const payments = db.payments.filter(p => p.jobId === billId && p.garageId === garageId);
-    const totalPayments = payments.reduce((sum, p) => sum + Number(p.amount), 0);
-
-    const advanceReceived = payments
+    const advances = db.advances.filter(a => a.jobId === billId && a.garageId === garageId);
+    const advancesSum = advances.reduce((sum, a) => sum + Number(a.amount), 0);
+    const paymentsAdvSum = payments
       .filter(p => p.notes === 'Advance' || p.notes === 'Advance payment')
       .reduce((sum, p) => sum + Number(p.amount), 0);
+    const advanceReceived = Math.max(advancesSum, paymentsAdvSum, Number(job.advanceReceived || 0));
+
+    const postPaymentsTotal = payments
+      .filter(p => p.notes !== 'Advance' && p.notes !== 'Advance payment')
+      .reduce((sum, p) => sum + Number(p.amount), 0);
+
+    const totalCollected = advanceReceived + postPaymentsTotal;
 
     job.partsTotal = partsTotal;
     job.partsDiscount = partsDiscount;
     job.labourTotal = labourTotal;
     job.labourDiscount = labourDiscount;
     job.advanceReceived = advanceReceived;
-    job.receivedAmount = totalPayments;
+    job.receivedAmount = totalCollected;
     job.labour = Math.max(0, labourTotal - labourDiscount);
 
     const partsNet = partsTotal - partsDiscount;
@@ -203,11 +210,11 @@ function recalculateBillTotalsLocal(db: Schema, billId: string | null | undefine
     job.overallDiscount = overallDiscountAmount;
     const prevDue = Number(job.previousDueAdded || 0);
     job.total = Math.max(0, subtotal - overallDiscountAmount + prevDue);
-    job.remainingAmount = Math.max(0, job.total - job.receivedAmount);
+    job.remainingAmount = Math.max(0, job.total - totalCollected);
 
-    if (job.receivedAmount >= job.total && job.total > 0) {
+    if (job.remainingAmount === 0 && job.total > 0) {
       job.paymentStatus = 'PAID';
-    } else if (job.receivedAmount > 0) {
+    } else if (totalCollected > 0) {
       job.paymentStatus = 'PARTIAL';
     } else {
       job.paymentStatus = 'PENDING';
@@ -280,21 +287,27 @@ function recalculateBillTotalsLocal(db: Schema, billId: string | null | undefine
     labourDiscount += discVal;
   });
 
-  // 3. Sum Payments
+  // 3. Sum Payments and Advances
   const payments = db.payments.filter(p => p.billId === billId && p.garageId === garageId);
-  const totalPayments = payments.reduce((sum, p) => sum + Number(p.amount), 0);
-
-  // 4. Sum Advances (from payments list with note 'Advance')
-  const advanceReceived = payments
+  const advances = db.advances.filter(a => a.billId === billId && a.garageId === garageId);
+  const advancesSum = advances.reduce((sum, a) => sum + Number(a.amount), 0);
+  const paymentsAdvSum = payments
     .filter(p => p.notes === 'Advance' || p.notes === 'Advance payment')
     .reduce((sum, p) => sum + Number(p.amount), 0);
+  const advanceReceived = Math.max(advancesSum, paymentsAdvSum, Number(bill.advanceReceived || 0));
+
+  const postPaymentsTotal = payments
+    .filter(p => p.notes !== 'Advance' && p.notes !== 'Advance payment')
+    .reduce((sum, p) => sum + Number(p.amount), 0);
+
+  const totalCollected = advanceReceived + postPaymentsTotal;
 
   bill.partsTotal = partsTotal;
   bill.partsDiscount = partsDiscount;
   bill.labourTotal = labourTotal;
   bill.labourDiscount = labourDiscount;
   bill.advanceReceived = advanceReceived;
-  bill.receivedAmount = totalPayments;
+  bill.receivedAmount = totalCollected;
   
   // Set simple legacy fields
   bill.labour = Math.max(0, labourTotal - labourDiscount);
@@ -319,11 +332,11 @@ function recalculateBillTotalsLocal(db: Schema, billId: string | null | undefine
   // Grand Total = Parts Net + Labour Net - Overall Discount + Previous Dues
   const prevDue = Number(bill.previousDueAdded || 0);
   bill.total = Math.max(0, subtotal - overallDiscountAmount + prevDue);
-  bill.remainingAmount = Math.max(0, bill.total - bill.receivedAmount);
+  bill.remainingAmount = Math.max(0, bill.total - totalCollected);
 
-  if (bill.receivedAmount >= bill.total && bill.total > 0) {
+  if (bill.remainingAmount === 0 && bill.total > 0) {
     bill.paymentStatus = 'PAID';
-  } else if (bill.receivedAmount > 0) {
+  } else if (totalCollected > 0) {
     bill.paymentStatus = 'PARTIAL';
   } else {
     bill.paymentStatus = 'PENDING';

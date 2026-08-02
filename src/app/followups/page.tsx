@@ -13,9 +13,9 @@ export default async function FollowupsPage() {
   const settings = await db.getGarageSettings(garageId, supabase);
   const garageName = settings?.name || 'GarageBook';
 
-  // Load bills to filter pending amounts
+  // Load bills to filter pending amounts (Priority 11)
   const bills = await db.getRecentBills(garageId, 500, supabase);
-  const pendingBills = bills.filter(b => b.paymentStatus !== 'PAID');
+  const pendingBills = bills.filter(b => Number(b.remainingAmount || 0) > 0 || Boolean(b.followupReminderDate || b.expectedPaymentDate));
 
   return (
     <FollowupsList 

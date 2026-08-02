@@ -137,43 +137,45 @@ export default function QueueClient({ initialQueue, initialMechanics, garageName
       setUpdatingId(billId);
       const updatedBill = await updateBill(billId, {
         date: bill.date,
-        labour: bill.labour,
-        notes: bill.notes,
+        labour: Number(bill.labour || 0),
+        notes: bill.notes || '',
         paymentStatus: bill.paymentStatus,
         items: (bill.items || []).map(i => ({
           name: i.name,
-          quantity: i.quantity,
-          unitPrice: i.unitPrice,
-          discountPercentage: i.discountPercentage,
-          discountAmount: i.discountAmount,
-          finalPrice: i.finalPrice
+          quantity: Number(i.quantity || 1),
+          unitPrice: Number(i.unitPrice || i.price || 0),
+          discountPercentage: Number(i.discountPercentage || 0),
+          discountAmount: Number(i.discountAmount || 0),
+          finalPrice: Number(i.finalPrice || i.price || 0)
         })),
         mechanicId: bill.mechanicId,
         expectedPaymentDate: bill.expectedPaymentDate,
         followupReminderDate: bill.followupReminderDate,
         paymentNotes: bill.paymentNotes,
         jobStatus: 'Delivered',
-        workRequested: bill.workRequested,
+        workRequested: bill.workRequested || '',
         services: (bill.services || []).map(s => ({
           name: s.name,
           mechanicId: s.mechanicId,
-          labourCharge: s.labourCharge,
-          discount: s.discount,
-          finalCharge: s.finalCharge
+          labourCharge: Number(s.labourCharge || 0),
+          discount: Number(s.discount || 0),
+          finalCharge: Number(s.finalCharge || 0)
         })),
-        overallDiscount: bill.overallDiscount,
-        previousDueAdded: bill.previousDueAdded,
+        overallDiscount: Number(bill.overallDiscount || 0),
+        previousDueAdded: Number(bill.previousDueAdded || 0),
         previousDueBillIds: bill.previousDueBillIds || []
       });
 
-      setQueue(prev => prev.filter(b => b.id !== billId));
+      const targetId = updatedBill?.id || billId;
+
+      setQueue(prev => prev.filter(b => b.id !== billId && b.id !== targetId));
       if (typeof window !== 'undefined') {
         window.dispatchEvent(new CustomEvent('gb-data-changed'));
       }
-      router.push(`/bill/${billId}`);
+      router.push(`/bill/${targetId}`);
     } catch (error) {
       console.error('Failed to deliver vehicle:', error);
-      alert('Failed to update status.');
+      alert('Failed to update status. Please try again.');
     } finally {
       setUpdatingId(null);
     }

@@ -721,7 +721,53 @@ export default function JobCardClient({ bill: initialBill, settings }: JobCardCl
                 </div>
               </div>
 
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 pt-2 border-t border-slate-100">
+              {/* Payment Choice Selection */}
+              <div className="space-y-2 pt-2 border-t border-slate-100">
+                <label className="block text-xs font-bold text-slate-500">Invoice Payment Status Choice</label>
+                <div className="grid grid-cols-3 gap-2">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const sub = (bill.items || []).reduce((sum, item) => sum + (item.finalPrice || 0), 0) + (bill.services || []).reduce((sum, s) => sum + (s.finalCharge || 0), 0);
+                      const disc = Number(overallDiscountVal) || 0;
+                      const tot = Math.max(0, sub - disc);
+                      const rem = Math.max(0, tot - (bill.advanceReceived || 0));
+                      setPaymentAmount(String(rem));
+                    }}
+                    className={`py-2 rounded-xl text-xs font-bold border transition-all ${
+                      Number(paymentAmount) > 0 && Number(paymentAmount) === Math.max(0, (((bill.items || []).reduce((sum, item) => sum + (item.finalPrice || 0), 0) + (bill.services || []).reduce((sum, s) => sum + (s.finalCharge || 0), 0)) - (Number(overallDiscountVal) || 0)) - (bill.advanceReceived || 0))
+                        ? 'bg-emerald-600 text-white border-emerald-600 shadow-sm'
+                        : 'bg-slate-50 text-slate-700 border-slate-200 hover:bg-slate-100'
+                    }`}
+                  >
+                    Paid
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setPaymentAmount('')}
+                    className={`py-2 rounded-xl text-xs font-bold border transition-all ${
+                      Number(paymentAmount) > 0 && Number(paymentAmount) < Math.max(0, (((bill.items || []).reduce((sum, item) => sum + (item.finalPrice || 0), 0) + (bill.services || []).reduce((sum, s) => sum + (s.finalCharge || 0), 0)) - (Number(overallDiscountVal) || 0)) - (bill.advanceReceived || 0))
+                        ? 'bg-amber-600 text-white border-amber-600 shadow-sm'
+                        : 'bg-slate-50 text-slate-700 border-slate-200 hover:bg-slate-100'
+                    }`}
+                  >
+                    Partial Paid
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setPaymentAmount('0')}
+                    className={`py-2 rounded-xl text-xs font-bold border transition-all ${
+                      paymentAmount === '0'
+                        ? 'bg-red-600 text-white border-red-600 shadow-sm'
+                        : 'bg-slate-50 text-slate-700 border-slate-200 hover:bg-slate-100'
+                    }`}
+                  >
+                    Unpaid
+                  </button>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 pt-2">
                 <div>
                   <label className="block text-xs font-bold text-slate-500 mb-1">Received Payment Amount (₹)</label>
                   <input
