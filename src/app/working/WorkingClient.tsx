@@ -7,7 +7,8 @@ import { toast } from 'sonner';
 import { 
   Play, Pause, CheckCircle2, Plus, 
   Wrench, User, CreditCard, ChevronRight,
-  TrendingUp, Clock, AlertTriangle, Eye, Trash2
+  TrendingUp, Clock, AlertTriangle, Eye, Trash2,
+  Share2, FileText
 } from 'lucide-react';
 import Navigation from '../components/Navigation';
 import Header from '../components/Header';
@@ -297,8 +298,18 @@ export default function WorkingClient({ initialJobs, settings, mechanics }: Work
 
                     {/* Stopwatch Timer */}
                     <div className="flex justify-between items-center bg-slate-50 border border-slate-150 rounded-xl p-3">
-                      <span className="text-xs font-bold text-slate-500">Service Hours:</span>
-                      <JobStopwatch bill={job} />
+                      <div>
+                        <span className="text-[10px] uppercase font-bold text-slate-400 block">Started At</span>
+                        <span className="text-xs font-bold text-slate-800">
+                          {job.jobStartTime 
+                            ? new Date(job.jobStartTime).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' }) 
+                            : new Date(job.date).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })}
+                        </span>
+                      </div>
+                      <div className="text-right">
+                        <span className="text-[10px] uppercase font-bold text-slate-400 block">Elapsed Time</span>
+                        <JobStopwatch bill={job} />
+                      </div>
                     </div>
 
                     {/* Current Parts */}
@@ -374,20 +385,41 @@ export default function WorkingClient({ initialJobs, settings, mechanics }: Work
                       </button>
                     </div>
 
-                    <div className="grid grid-cols-2 gap-2 text-xs font-black">
+                    <div className="grid grid-cols-3 gap-1.5 text-[11px] font-bold">
                       <Link
-                        href={`/bill/${job.id}`}
-                        className="w-full text-center py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl transition-all active:scale-95 flex items-center justify-center gap-1 border border-slate-200"
+                        href={`/customer/${job.customerId}`}
+                        className="text-center py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl transition-all active:scale-95 flex items-center justify-center gap-1 border border-slate-200"
                       >
-                        <Eye className="h-4 w-4" /> Open Job
+                        <User className="h-3.5 w-3.5" /> Customer
                       </Link>
+                      
                       <button
                         type="button"
-                        onClick={() => handleEndJob(job)}
-                        className="w-full py-2.5 bg-red-600 hover:bg-red-700 text-white rounded-xl shadow-sm transition-all active:scale-95 flex items-center justify-center gap-1"
+                        onClick={() => {
+                          const text = `GarageBook Job Card Update for ${job.vehicle?.vehicleNumber} (${job.customer?.name}). Status: ${job.jobStatus}.`;
+                          window.open(`https://api.whatsapp.com/send?text=${encodeURIComponent(text)}`, '_blank');
+                        }}
+                        className="text-center py-2 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 rounded-xl transition-all active:scale-95 flex items-center justify-center gap-1 border border-emerald-200"
                       >
-                        <CheckCircle2 className="h-4 w-4" /> End Job
+                        <Share2 className="h-3.5 w-3.5" /> Share
                       </button>
+
+                      {((job.jobStatus as string) === 'Completed' || (job.jobStatus as string) === 'Work Completed' || job.timerState === 'COMPLETED') ? (
+                        <Link
+                          href={`/bill/${job.id}`}
+                          className="text-center py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl transition-all active:scale-95 flex items-center justify-center gap-1 shadow-sm"
+                        >
+                          <FileText className="h-3.5 w-3.5" /> Bill
+                        </Link>
+                      ) : (
+                        <button
+                          type="button"
+                          onClick={() => handleEndJob(job)}
+                          className="py-2 bg-red-600 hover:bg-red-700 text-white rounded-xl shadow-sm transition-all active:scale-95 flex items-center justify-center gap-1"
+                        >
+                          <CheckCircle2 className="h-3.5 w-3.5" /> End Job
+                        </button>
+                      )}
                     </div>
                   </div>
                 </div>

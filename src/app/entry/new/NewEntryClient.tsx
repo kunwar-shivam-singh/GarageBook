@@ -10,7 +10,9 @@ import {
   getCustomerOutstandingDues,
   getVehicleSuggestions,
   getComplaintSuggestions,
-  getCustomerPhoneByVehicleNumber
+  getCustomerPhoneByVehicleNumber,
+  learnComplaintSuggestion,
+  learnVehicleSuggestion
 } from '../../actions';
 import { 
   User, Bike, MessageSquare, CreditCard, ChevronRight, ChevronLeft, 
@@ -24,15 +26,17 @@ interface NewEntryClientProps {
 
 const COMMON_COMPLAINTS = [
   "General Service",
-  "Engine Noise",
   "Brake Problem",
   "Clutch Problem",
-  "Chain Sprocket",
+  "Engine Noise",
   "Oil Change",
+  "Chain Sprocket",
+  "Battery",
+  "Electrical",
+  "Suspension",
   "Puncture",
-  "Electrical Issue",
-  "Battery Issue",
-  "Starting Problem"
+  "Tyre Change",
+  "Other"
 ];
 
 export default function NewEntryClient({ garageName }: NewEntryClientProps) {
@@ -203,6 +207,7 @@ export default function NewEntryClient({ garageName }: NewEntryClientProps) {
     }
     setComplaints(prev => [...prev, clean]);
     setCustomComplaint('');
+    learnComplaintSuggestion(clean).catch(console.error);
   };
 
   // Submit and create Queue Job Card
@@ -251,6 +256,7 @@ export default function NewEntryClient({ garageName }: NewEntryClientProps) {
 
     try {
       await createBill(payload);
+      learnVehicleSuggestion(brand.trim(), model.trim()).catch(console.error);
       
       // Completely reset state to default
       setPhone('');

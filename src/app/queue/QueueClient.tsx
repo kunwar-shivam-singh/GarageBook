@@ -205,31 +205,50 @@ export default function QueueClient({ initialQueue, initialMechanics, garageName
     };
   };
 
-  const filteredQueue = queue.filter(b => {
-    if (filterStatus !== 'ALL' && b.jobStatus !== filterStatus) return false;
-    
-    if (searchQuery.trim()) {
-      const q = searchQuery.toLowerCase().trim();
-      const customerName = b.customer?.name.toLowerCase() || '';
-      const phone = b.customer?.phone || '';
-      const vNum = b.vehicle?.vehicleNumber.toLowerCase() || '';
-      const model = b.vehicle?.model.toLowerCase() || '';
-      const brand = b.vehicle?.brand.toLowerCase() || '';
-      const mech = b.mechanic?.name.toLowerCase() || '';
-      
-      return customerName.includes(q) || phone.includes(q) || vNum.includes(q) || model.includes(q) || brand.includes(q) || mech.includes(q);
+  const getWaitingTimeDisplay = (bill: Bill) => {
+    const created = new Date(bill.date || bill.createdAt).getTime();
+    const diffSecs = Math.max(0, Math.floor((currentTime - created) / 1000));
+    const hrs = Math.floor(diffSecs / 3600);
+    const mins = Math.floor((diffSecs % 3600) / 60);
+    if (hrs > 0) {
+      return `${hrs} hr${hrs > 1 ? 's' : ''} ${mins > 0 ? `${mins} m` : ''}`;
     }
-    
-    return true;
-  });
+    return `${Math.max(1, mins)} min`;
+  };
 
-  const getStatusBadge = (status: string) => {
+  const filteredQueue = queue
+    .filter(b => {
+      if (filterStatus !== 'ALL' && b.jobStatus !== filterStatus) return false;
+      
+      if (searchQuery.trim()) {
+        const q = searchQuery.toLowerCase().trim();
+        const customerName = b.customer?.name.toLowerCase() || '';
+        const phone = b.customer?.phone || '';
+        const vNum = b.vehicle?.vehicleNumber.toLowerCase() || '';
+        const model = b.vehicle?.model.toLowerCase() || '';
+        const brand = b.vehicle?.brand.toLowerCase() || '';
+        const mech = b.mechanic?.name.toLowerCase() || '';
+        
+        return customerName.includes(q) || phone.includes(q) || vNum.includes(q) || model.includes(q) || brand.includes(q) || mech.includes(q);
+      }
+      
+      return true;
+    })
+    .sort((a, b) => new Date(a.date || a.createdAt).getTime() - new Date(b.date || b.createdAt).getTime());
+
+  const getStatusBadge = (status: string, bill?: Bill) => {
     switch (status) {
       case 'Waiting':
-        return <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold bg-amber-50 text-amber-700 border border-amber-200">Waiting</span>;
+        return (
+          <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold bg-amber-50 text-amber-700 border border-amber-200">
+            <Clock className="h-3 w-3 text-amber-500" />
+            Waiting ({bill ? getWaitingTimeDisplay(bill) : '0 min'})
+          </span>
+        );
       case 'Assigned':
         return <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold bg-yellow-50 text-yellow-700 border border-yellow-200">Assigned</span>;
       case 'Work Started':
+      case 'Working':
         return (
           <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold bg-green-50 text-green-700 border border-green-200">
             <span className="h-1.5 w-1.5 rounded-full bg-green-500 animate-pulse" />
@@ -353,7 +372,7 @@ export default function QueueClient({ initialQueue, initialMechanics, garageName
                         </div>
 
                         <div className="flex flex-col items-end gap-2">
-                          {getStatusBadge(bill.jobStatus)}
+                          {getStatusBadge(bill.jobStatus, bill)}
                           <span className="text-[10px] text-slate-450 font-bold">In: {new Date(bill.date).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })}</span>
                           {bill.advanceReceived > 0 && (
                             <span className="text-[9px] bg-emerald-50 text-emerald-700 px-1.5 py-0.5 rounded font-black border border-emerald-200">
@@ -509,7 +528,7 @@ export default function QueueClient({ initialQueue, initialMechanics, garageName
                         <span className="font-mono font-bold uppercase bg-slate-100 border border-slate-250 px-2 py-0.5 rounded text-xs tracking-wider text-slate-900">
                           {bill.vehicle?.vehicleNumber}
                         </span>
-                        {getStatusBadge(bill.jobStatus)}
+                        {getStatusBadge(bill.jobStatus, bill)}
                       </div>
 
                       <div className="space-y-0.5">

@@ -31,7 +31,7 @@ interface DashboardClientProps {
 export default function DashboardClient({ initialBills, settings }: DashboardClientProps) {
   const [bills, setBills] = useState<Bill[]>(initialBills);
   const [priorities, setPriorities] = useState<Record<string, string>>({});
-  const [dashboardFilter, setDashboardFilter] = useState<'All' | 'Today' | 'Open' | 'Working' | 'Completed' | 'PendingDelivery' | 'PendingPayment'>('All');
+  const [dashboardFilter, setDashboardFilter] = useState<'All' | 'Today' | 'Waiting' | 'Working' | 'Completed' | 'PendingDelivery' | 'PendingPayment'>('All');
 
   useEffect(() => {
     if (typeof window !== 'undefined') {
@@ -191,12 +191,12 @@ export default function DashboardClient({ initialBills, settings }: DashboardCli
     const todayVehiclesList = bills.filter(b => isSameDay(b.date, today));
     const todayVehicles = todayVehiclesList.length;
     
-    // 2. Open Jobs (Active Jobs in workshop - no invoice number yet)
-    const openJobsList = bills.filter(b => !b.invoiceNumber && (b.jobStatus as string) !== 'Cancelled');
-    const openJobsCount = openJobsList.length;
+    // 2. Waiting Jobs (In workshop queue waiting for mechanic assignment)
+    const waitingJobsList = bills.filter(b => !b.invoiceNumber && ((b.jobStatus as string) === 'Waiting' || !(b.jobStatus as string)) && (b.jobStatus as string) !== 'Cancelled');
+    const waitingJobsCount = waitingJobsList.length;
 
     // 3. Working Jobs (Active jobs currently Assigned or Working)
-    const workingJobsList = bills.filter(b => !b.invoiceNumber && ((b.jobStatus as string) === 'Working' || (b.jobStatus as string) === 'Assigned'));
+    const workingJobsList = bills.filter(b => !b.invoiceNumber && ((b.jobStatus as string) === 'Working' || (b.jobStatus as string) === 'Assigned' || (b.jobStatus as string) === 'Work Started' || (b.jobStatus as string) === 'Waiting for Parts'));
     const workingJobsCount = workingJobsList.length;
 
     // 4. Completed Today (Ready for Delivery, Completed or Delivered today)
@@ -216,11 +216,14 @@ export default function DashboardClient({ initialBills, settings }: DashboardCli
     const pendingPaymentsList = bills.filter(b => b.invoiceNumber && b.remainingAmount > 0 && (b.jobStatus as string) !== 'Cancelled');
     const pendingPaymentsCount = pendingPaymentsList.length;
 
+    // Open Jobs (all active service cards in workshop without invoice number)
+    const openJobsList = bills.filter(b => !b.invoiceNumber && (b.jobStatus as string) !== 'Cancelled');
+
     return {
       todayVehiclesList,
       todayVehicles,
-      openJobsList,
-      openJobsCount,
+      waitingJobsList,
+      waitingJobsCount,
       workingJobsList,
       workingJobsCount,
       completedTodayList,
@@ -228,13 +231,14 @@ export default function DashboardClient({ initialBills, settings }: DashboardCli
       pendingDeliveriesList,
       pendingDeliveriesCount,
       pendingPaymentsList,
-      pendingPaymentsCount
+      pendingPaymentsCount,
+      openJobsList
     };
   }, [bills]);
 
   const {
     todayVehicles,
-    openJobsCount,
+    waitingJobsCount,
     workingJobsCount,
     completedTodayCount,
     pendingDeliveriesCount,
@@ -258,8 +262,8 @@ export default function DashboardClient({ initialBills, settings }: DashboardCli
       case 'Today':
         list = metrics.todayVehiclesList;
         break;
-      case 'Open':
-        list = metrics.openJobsList;
+      case 'Waiting':
+        list = metrics.waitingJobsList;
         break;
       case 'Working':
         list = metrics.workingJobsList;
@@ -603,13 +607,13 @@ export default function DashboardClient({ initialBills, settings }: DashboardCli
 
             <button
               type="button"
-              onClick={() => setDashboardFilter(dashboardFilter === 'Open' ? 'All' : 'Open')}
-              className={`bg-white border rounded-2xl p-4 shadow-sm text-center transition-all active:scale-95 hover:border-blue-300 ${
-                dashboardFilter === 'Open' ? 'border-blue-500 ring-2 ring-blue-100 bg-blue-50/10' : 'border-slate-200'
+              onClick={() => setDashboardFilter(dashboardFilter === 'Waiting' ? 'All' : 'Waiting')}
+              className={`bg-white border rounded-2xl p-4 shadow-sm text-center transition-all active:scale-95 hover:border-amber-300 ${
+                dashboardFilter === 'Waiting' ? 'border-amber-500 ring-2 ring-amber-100 bg-amber-50/10' : 'border-slate-200'
               }`}
             >
-              <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block mb-1">Open Jobs</span>
-              <span className="text-xl font-black text-slate-950 font-mono">{openJobsCount}</span>
+              <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block mb-1">Waiting</span>
+              <span className="text-xl font-black text-amber-600 font-mono">{waitingJobsCount}</span>
             </button>
 
             <button
@@ -682,7 +686,7 @@ export default function DashboardClient({ initialBills, settings }: DashboardCli
                 <h2 className="text-lg font-black text-slate-900 flex items-center gap-1.5">
                   <Clock className="h-5 w-5 text-blue-600" /> {
                     dashboardFilter === 'Today' ? `Today's Vehicles (${filteredDisplayList.length})` :
-                    dashboardFilter === 'Open' ? `Open Service Jobs (${filteredDisplayList.length})` :
+                    dashboardFilter === 'Waiting' ? `Waiting Queue (${filteredDisplayList.length})` :
                     dashboardFilter === 'Working' ? `Working Repair Jobs (${filteredDisplayList.length})` :
                     dashboardFilter === 'Completed' ? `Completed Today (${filteredDisplayList.length})` :
                     dashboardFilter === 'PendingDelivery' ? `Pending Deliveries (${filteredDisplayList.length})` :
