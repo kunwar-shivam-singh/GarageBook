@@ -119,12 +119,22 @@ export default function BillsList({ initialBills, garageName }: BillsListProps) 
                       </div>
                     </div>
                     
-                    {/* Price */}
-                    <div className="text-right">
-                      <span className="text-xs font-semibold text-slate-400">Grand Total</span>
-                      <div className="text-2xl font-black text-slate-900 flex items-center justify-end leading-none">
+                    {/* Price & Balance */}
+                    <div className="text-right flex flex-col items-end">
+                      <span className="text-[10px] font-bold text-slate-400 uppercase">Grand Total</span>
+                      <div className="text-xl font-black text-slate-900 font-mono leading-tight">
                         ₹{bill.total}
                       </div>
+                      {Number(bill.advanceReceived || 0) > 0 && (
+                        <span className="text-[10px] font-bold text-emerald-700 bg-emerald-50 px-1.5 py-0.5 rounded border border-emerald-200 mt-1">
+                          Adv: ₹{bill.advanceReceived}
+                        </span>
+                      )}
+                      {Number(bill.remainingAmount || 0) > 0 && (
+                        <span className="text-[10px] font-bold text-red-700 bg-red-50 px-1.5 py-0.5 rounded border border-red-200 mt-0.5">
+                          Due: ₹{bill.remainingAmount}
+                        </span>
+                      )}
                     </div>
                   </div>
 

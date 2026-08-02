@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { useRouter } from 'next/navigation';
 import { 
   Play, Pause, CheckCircle, User, Phone, Clock, 
@@ -218,25 +218,27 @@ export default function QueueClient({ initialQueue, initialMechanics, garageName
     return `${Math.max(1, mins)} min`;
   };
 
-  const filteredQueue = queue
-    .filter(b => {
-      if (filterStatus !== 'ALL' && b.jobStatus !== filterStatus) return false;
-      
-      if (searchQuery.trim()) {
-        const q = searchQuery.toLowerCase().trim();
-        const customerName = b.customer?.name.toLowerCase() || '';
-        const phone = b.customer?.phone || '';
-        const vNum = b.vehicle?.vehicleNumber.toLowerCase() || '';
-        const model = b.vehicle?.model.toLowerCase() || '';
-        const brand = b.vehicle?.brand.toLowerCase() || '';
-        const mech = b.mechanic?.name.toLowerCase() || '';
+  const filteredQueue = useMemo(() => {
+    return queue
+      .filter(b => {
+        if (filterStatus !== 'ALL' && b.jobStatus !== filterStatus) return false;
         
-        return customerName.includes(q) || phone.includes(q) || vNum.includes(q) || model.includes(q) || brand.includes(q) || mech.includes(q);
-      }
-      
-      return true;
-    })
-    .sort((a, b) => new Date(a.date || a.createdAt).getTime() - new Date(b.date || b.createdAt).getTime());
+        if (searchQuery.trim()) {
+          const q = searchQuery.toLowerCase().trim();
+          const customerName = b.customer?.name.toLowerCase() || '';
+          const phone = b.customer?.phone || '';
+          const vNum = b.vehicle?.vehicleNumber.toLowerCase() || '';
+          const model = b.vehicle?.model.toLowerCase() || '';
+          const brand = b.vehicle?.brand.toLowerCase() || '';
+          const mech = b.mechanic?.name.toLowerCase() || '';
+          
+          return customerName.includes(q) || phone.includes(q) || vNum.includes(q) || model.includes(q) || brand.includes(q) || mech.includes(q);
+        }
+        
+        return true;
+      })
+      .sort((a, b) => new Date(a.date || a.createdAt).getTime() - new Date(b.date || b.createdAt).getTime());
+  }, [queue, filterStatus, searchQuery]);
 
   const getStatusBadge = (status: string, bill?: Bill) => {
     switch (status) {

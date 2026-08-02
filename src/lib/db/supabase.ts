@@ -1636,13 +1636,15 @@ export const supabaseDb = {
       { data: itemsData },
       { data: customersData },
       { data: vehiclesData },
-      { data: billsData }
+      { data: billsData },
+      { data: jobsData }
     ] = await Promise.all([
       client.from('mechanics').select('id').eq('garage_id', garageId).ilike('name', `%${cleanQuery}%`),
       client.from('bill_items').select('bill_id').eq('garage_id', garageId).ilike('name', `%${cleanQuery}%`),
       client.from('customers').select('*').eq('garage_id', garageId).or(`name.ilike.%${cleanQuery}%,phone.ilike.%${cleanQuery}%`),
       client.from('vehicles').select('*').eq('garage_id', garageId).or(`vehicle_number.ilike.%${cleanQuery}%,brand.ilike.%${cleanQuery}%,model.ilike.%${cleanQuery}%`),
-      client.from('bills').select('customer_id').eq('garage_id', garageId).ilike('invoice_number', `%${cleanQuery}%`)
+      client.from('bills').select('customer_id').eq('garage_id', garageId).or(`invoice_number.ilike.%${cleanQuery}%,work_requested.ilike.%${cleanQuery}%,service_notes.ilike.%${cleanQuery}%,notes.ilike.%${cleanQuery}%`),
+      client.from('service_jobs').select('customer_id').eq('garage_id', garageId).or(`work_requested.ilike.%${cleanQuery}%,service_notes.ilike.%${cleanQuery}%,notes.ilike.%${cleanQuery}%`)
     ]);
 
     // Gather matched customer IDs
@@ -1650,6 +1652,7 @@ export const supabaseDb = {
     (customersData || []).forEach((c: any) => matchedCustomerIds.add(c.id));
     (vehiclesData || []).forEach((v: any) => matchedCustomerIds.add(v.customer_id));
     (billsData || []).forEach((b: any) => matchedCustomerIds.add(b.customer_id));
+    (jobsData || []).forEach((j: any) => matchedCustomerIds.add(j.customer_id));
 
     // Gather bill-specific matching elements
     const matchedBillIds = new Set<string>();
@@ -1679,58 +1682,55 @@ export const supabaseDb = {
     (itemBills || []).forEach((b: any) => matchedCustomerIds.add(b.customer_id));
     (mechBills || []).forEach((b: any) => matchedCustomerIds.add(b.customer_id));
 
-    if (matchedCustomerIds.size === 0) return [];
+    const customerIdsList = Array.from(matchedCustomerIds).filter(Boolean);
+    if (customerIdsList.length === 0) return [];
 
-    const results = [];
-    for (const cid of Array.from(matchedCustomerIds)) {
-      const { data: customer } = await client
-        .from('customers')
-        .select('*')
-        .eq('id', cid)
-        .eq('garage_id', garageId)
-        .single();
+    // Batch fetch all matched customers, vehicles, bills, and jobs in 4 parallel queries
+    const [
+      { data: allMatchedCustomers },
+      { data: allMatchedVehicles },
+      { data: allMatchedBills },
+      { data: allMatchedJobs }
+    ] = await Promise.all([
+      client.from('customers').select('*').eq('garage_id', garageId).in('id', customerIdsList),
+      client.from('vehicles').select('*').eq('garage_id', garageId).in('customer_id', customerIdsList),
+      client.from('bills').select('*, vehicles(*), mechanics(*), payments(*)').eq('garage_id', garageId).in('customer_id', customerIdsList),
+      client.from('service_jobs').select('*, vehicles(*), mechanics(*), payments(*)').eq('garage_id', garageId).in('customer_id', customerIdsList)
+    ]);
 
-      const { data: customerVehicles } = await client
-        .from('vehicles')
-        .select('*')
-        .eq('customer_id', cid)
-        .eq('garage_id', garageId);
+    const vehiclesMap = new Map<string, any[]>();
+    (allMatchedVehicles || []).forEach((v: any) => {
+      const list = vehiclesMap.get(v.customer_id) || [];
+      list.push(mapVehicle(v));
+      vehiclesMap.set(v.customer_id, list);
+    });
 
-      const { data: customerBills } = await client
-        .from('bills')
-        .select(`
-          *,
-          vehicles (*),
-          mechanics (*),
-          payments (*)
-        `)
-        .eq('customer_id', cid)
-        .eq('garage_id', garageId);
+    const billsMap = new Map<string, any[]>();
+    (allMatchedBills || []).forEach((b: any) => {
+      const list = billsMap.get(b.customer_id) || [];
+      list.push(mapBill(b));
+      billsMap.set(b.customer_id, list);
+    });
 
-      const { data: customerJobs } = await client
-        .from('service_jobs')
-        .select(`
-          *,
-          vehicles (*),
-          mechanics (*),
-          payments (*)
-        `)
-        .eq('customer_id', cid)
-        .eq('garage_id', garageId);
+    const jobsMap = new Map<string, any[]>();
+    (allMatchedJobs || []).forEach((j: any) => {
+      const list = jobsMap.get(j.customer_id) || [];
+      list.push({ ...mapServiceJob(j), invoiceNumber: '' });
+      jobsMap.set(j.customer_id, list);
+    });
 
-      const mappedBills = [
-        ...(customerJobs || []).map((j: any) => ({ ...mapServiceJob(j), invoiceNumber: '' })),
-        ...(customerBills || []).map(mapBill)
-      ].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
-
-      results.push({
-        customer: mapCustomer(customer),
-        vehicles: (customerVehicles || []).map(mapVehicle),
-        bills: mappedBills,
-      });
-    }
-
-    return results;
+    return (allMatchedCustomers || []).map((c: any) => {
+      const customer = mapCustomer(c);
+      const vehicles = vehiclesMap.get(c.id) || [];
+      const bills = billsMap.get(c.id) || [];
+      const jobs = jobsMap.get(c.id) || [];
+      const mappedBills = [...jobs, ...bills].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+      return {
+        customer,
+        vehicles,
+        bills: mappedBills
+      };
+    });
   },
 
   updatePartSuggestion: async (garageId: string, id: string, name: string, price: number | null, supabase?: any): Promise<PartSuggestion> => {

@@ -1181,22 +1181,73 @@ export const jsonDb = {
 
   getRecentBills: async (garageId: string, limit: number = 20): Promise<Bill[]> => {
     const db = readDb(garageId);
-    return db.bills
-      .filter(b => b.garageId === garageId)
+    const garageBills = db.bills.filter(b => b.garageId === garageId);
+    
+    // Hash Maps for O(1) lookups instead of O(N*M) scanning
+    const customersMap = new Map(db.customers.map(c => [c.id, c]));
+    const vehiclesMap = new Map(db.vehicles.map(v => [v.id, v]));
+    const mechanicsMap = new Map(db.mechanics.map(m => [m.id, m]));
+    
+    const itemsMap = new Map<string, BillItem[]>();
+    db.billItems.forEach(item => {
+      if (!item.billId) return;
+      const list = itemsMap.get(item.billId) || [];
+      list.push(item);
+      itemsMap.set(item.billId, list);
+    });
+
+    const paymentsMap = new Map<string, Payment[]>();
+    db.payments.forEach(p => {
+      if (!p.billId) return;
+      const list = paymentsMap.get(p.billId) || [];
+      list.push(p);
+      paymentsMap.set(p.billId, list);
+    });
+
+    const servicesMap = new Map<string, Service[]>();
+    db.services.forEach(s => {
+      if (!s.billId) return;
+      const list = servicesMap.get(s.billId) || [];
+      list.push({ ...s, mechanic: s.mechanicId ? mechanicsMap.get(s.mechanicId) : undefined });
+      servicesMap.set(s.billId, list);
+    });
+
+    const advancesMap = new Map<string, Advance[]>();
+    db.advances.forEach(a => {
+      if (!a.billId) return;
+      const list = advancesMap.get(a.billId) || [];
+      list.push(a);
+      advancesMap.set(a.billId, list);
+    });
+
+    const timersMap = new Map<string, JobTimer[]>();
+    db.timers.forEach(t => {
+      if (!t.billId) return;
+      const list = timersMap.get(t.billId) || [];
+      list.push(t);
+      timersMap.set(t.billId, list);
+    });
+
+    const followupsMap = new Map<string, Followup[]>();
+    db.followups.forEach(f => {
+      if (!f.billId) return;
+      const list = followupsMap.get(f.billId) || [];
+      list.push(f);
+      followupsMap.set(f.billId, list);
+    });
+
+    return garageBills
       .map(b => ({
         ...b,
-        customer: db.customers.find(c => c.id === b.customerId),
-        vehicle: db.vehicles.find(v => v.id === b.vehicleId),
-        items: db.billItems.filter(item => item.billId === b.id),
-        mechanic: db.mechanics.find(m => m.id === b.mechanicId),
-        payments: db.payments.filter(p => p.billId === b.id),
-        services: db.services.filter(s => s.billId === b.id).map(s => ({
-          ...s,
-          mechanic: db.mechanics.find(m => m.id === s.mechanicId)
-        })),
-        advances: db.advances.filter(a => a.billId === b.id),
-        timers: db.timers.filter(t => t.billId === b.id),
-        followups: db.followups.filter(f => f.billId === b.id),
+        customer: customersMap.get(b.customerId),
+        vehicle: vehiclesMap.get(b.vehicleId),
+        items: itemsMap.get(b.id) || [],
+        mechanic: b.mechanicId ? mechanicsMap.get(b.mechanicId) : undefined,
+        payments: paymentsMap.get(b.id) || [],
+        services: servicesMap.get(b.id) || [],
+        advances: advancesMap.get(b.id) || [],
+        timers: timersMap.get(b.id) || [],
+        followups: followupsMap.get(b.id) || [],
       }))
       .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
       .slice(0, limit);
@@ -1780,9 +1831,26 @@ export const jsonDb = {
     matchedVehicles.forEach(v => matchedCustomerIds.add(v.customerId));
 
     const matchedInvoiceBills = db.bills.filter(b =>
-      b.garageId === garageId && b.invoiceNumber.toLowerCase().includes(cleanQuery)
+      b.garageId === garageId && (
+        b.invoiceNumber.toLowerCase().includes(cleanQuery) ||
+        (b.workRequested && b.workRequested.toLowerCase().includes(cleanQuery)) ||
+        (b.serviceNotes && b.serviceNotes.toLowerCase().includes(cleanQuery)) ||
+        (b.notes && b.notes.toLowerCase().includes(cleanQuery))
+      )
     );
     matchedInvoiceBills.forEach(b => matchedCustomerIds.add(b.customerId));
+
+    (db.serviceJobs || []).forEach(j => {
+      if (
+        j.garageId === garageId && (
+          (j.workRequested && j.workRequested.toLowerCase().includes(cleanQuery)) ||
+          (j.serviceNotes && j.serviceNotes.toLowerCase().includes(cleanQuery)) ||
+          (j.notes && j.notes.toLowerCase().includes(cleanQuery))
+        )
+      ) {
+        matchedCustomerIds.add(j.customerId);
+      }
+    });
     
     matchedMechanics.forEach(mech => {
       db.bills

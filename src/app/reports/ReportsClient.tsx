@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import Navigation from '../components/Navigation';
 import Header from '../components/Header';
 import { Bill, GarageSettings, Payment, ManualImport } from '@/lib/db/types';
@@ -51,91 +51,113 @@ export default function ReportsClient({ bills, settings, imports }: ReportsClien
     return true;
   };
 
-  // 1. Filtered Bills
-  const filteredBills = bills.filter(b => matchesDate(b.date));
+  // Memoized report metrics calculation
+  const reportMetrics = useMemo(() => {
+    const filteredBills = bills.filter(b => matchesDate(b.date));
+    const filteredImports = (imports || []).filter(m => matchesDate(m.billDate));
 
-  // 2. Filtered Manual Imports
-  const filteredImports = (imports || []).filter(m => matchesDate(m.billDate));
+    const allPayments = bills.flatMap(b => {
+      const pays = (b.payments || []).map(p => ({
+        ...p,
+        invoiceNumber: b.invoiceNumber,
+        customerName: b.customer?.name,
+      }));
+      if (b.advances && b.advances.length > 0) {
+        b.advances.forEach((adv, idx) => {
+          const hasMatchingPay = b.payments?.some(p => p.notes === 'Advance' || p.notes === 'Advance payment');
+          if (!hasMatchingPay) {
+            pays.push({
+              id: `adv_rep_${b.id}_${idx}`,
+              billId: b.id,
+              garageId: '',
+              paymentMethod: adv.paymentMode,
+              amount: adv.amount,
+              paymentDate: b.date,
+              notes: 'Advance',
+              createdAt: b.date,
+              invoiceNumber: b.invoiceNumber,
+              customerName: b.customer?.name,
+            });
+          }
+        });
+      }
+      return pays;
+    });
 
-  // 3. Filtered Payments
-  const allPayments = bills.flatMap(b => {
-    const pays = (b.payments || []).map(p => ({
-      ...p,
-      invoiceNumber: b.invoiceNumber,
-      customerName: b.customer?.name,
-    }));
-    // Check if this bill has advances that are not yet tracked in payments
-    if (b.advances && b.advances.length > 0) {
-      b.advances.forEach((adv, idx) => {
-        const hasMatchingPay = b.payments?.some(p => p.notes === 'Advance' || p.notes === 'Advance payment');
-        if (!hasMatchingPay) {
-          pays.push({
-            id: `adv_rep_${b.id}_${idx}`,
-            billId: b.id,
-            garageId: '',
-            paymentMethod: adv.paymentMode,
-            amount: adv.amount,
-            paymentDate: b.date,
-            notes: 'Advance',
-            createdAt: b.date,
-            invoiceNumber: b.invoiceNumber,
-            customerName: b.customer?.name,
-          });
-        }
-      });
-    }
-    return pays;
-  });
-  const filteredPayments = allPayments.filter(p => matchesDate(p.paymentDate));
+    const filteredPayments = allPayments.filter(p => matchesDate(p.paymentDate));
 
-  // Core metrics including manual imports
-  const billSales = filteredBills.reduce((sum, b) => sum + b.total, 0);
-  const importSales = filteredImports.reduce((sum, m) => sum + m.amount, 0);
-  const totalSales = billSales + importSales;
+    const billSales = filteredBills.reduce((sum, b) => sum + b.total, 0);
+    const importSales = filteredImports.reduce((sum, m) => sum + m.amount, 0);
+    const totalSales = billSales + importSales;
 
-  const billOutstanding = filteredBills.reduce((sum, b) => sum + b.remainingAmount, 0);
-  const importOutstanding = filteredImports.reduce((sum, m) => sum + m.pendingAmount, 0);
-  const totalOutstanding = billOutstanding + importOutstanding;
-  
-  // Total received (Standard payments + advances + imported paid amounts)
-  const paymentsCollections = filteredPayments.reduce((sum, p) => sum + p.amount, 0);
-  const paymentsWithNoteAdvance = filteredPayments
-    .filter(p => p.notes === 'Advance' || p.notes === 'Advance payment')
-    .reduce((sum, p) => sum + p.amount, 0);
-  const advancesCollections = filteredBills.reduce((sum, b) => sum + (b.advanceReceived || 0), 0);
-  const importCollections = filteredImports.reduce((sum, m) => sum + m.paidAmount, 0);
-  const totalCollections = paymentsCollections - paymentsWithNoteAdvance + advancesCollections + importCollections;
+    const billOutstanding = filteredBills.reduce((sum, b) => sum + b.remainingAmount, 0);
+    const importOutstanding = filteredImports.reduce((sum, m) => sum + m.pendingAmount, 0);
+    const totalOutstanding = billOutstanding + importOutstanding;
 
-  const billsCount = filteredBills.length + filteredImports.length;
-  const uniqueCustomers = new Set([
-    ...filteredBills.map(b => b.customerId),
-    ...filteredImports.map(m => m.phone)
-  ]).size;
-  const uniqueVehicles = new Set([
-    ...filteredBills.map(b => b.vehicleId),
-    ...filteredImports.map(m => m.vehicleNumber)
-  ]).size;
+    const paymentsCollections = filteredPayments.reduce((sum, p) => sum + p.amount, 0);
+    const paymentsWithNoteAdvance = filteredPayments
+      .filter(p => p.notes === 'Advance' || p.notes === 'Advance payment')
+      .reduce((sum, p) => sum + p.amount, 0);
+    const advancesCollections = filteredBills.reduce((sum, b) => sum + (b.advanceReceived || 0), 0);
+    const importCollections = filteredImports.reduce((sum, m) => sum + m.paidAmount, 0);
+    const totalCollections = paymentsCollections - paymentsWithNoteAdvance + advancesCollections + importCollections;
 
-  // v2.0 splits calculations
-  const garagePartsRevenue = filteredBills.reduce((sum, b) => {
-    const partsSum = b.items?.reduce((pSum, item) => pSum + (Number(item.finalPrice || item.price || 0)), 0) || 0;
-    return sum + partsSum;
-  }, 0);
+    const billsCount = filteredBills.length + filteredImports.length;
+    const uniqueCustomers = new Set([
+      ...filteredBills.map(b => b.customerId),
+      ...filteredImports.map(m => m.phone)
+    ]).size;
+    const uniqueVehicles = new Set([
+      ...filteredBills.map(b => b.vehicleId),
+      ...filteredImports.map(m => m.vehicleNumber)
+    ]).size;
 
-  const garageLabourRevenue = filteredBills.reduce((sum, b) => {
-    const labourSum = b.services?.filter(s => s.mechanicType === 'Salary' || !s.mechanicType)
-      .reduce((lSum, s) => lSum + Number(s.finalCharge || 0), 0) || 0;
-    return sum + labourSum;
-  }, 0);
+    const garagePartsRevenue = filteredBills.reduce((sum, b) => {
+      const partsSum = b.items?.reduce((pSum, item) => pSum + (Number(item.finalPrice || item.price || 0)), 0) || 0;
+      return sum + partsSum;
+    }, 0);
 
-  const independentMechanicLabour = filteredBills.reduce((sum, b) => {
-    const labourSum = b.services?.filter(s => s.mechanicType === 'Independent')
-      .reduce((lSum, s) => lSum + Number(s.finalCharge || 0), 0) || 0;
-    return sum + labourSum;
-  }, 0);
+    const garageLabourRevenue = filteredBills.reduce((sum, b) => {
+      const labourSum = b.services?.filter(s => s.mechanicType === 'Salary' || !s.mechanicType)
+        .reduce((lSum, s) => lSum + Number(s.finalCharge || 0), 0) || 0;
+      return sum + labourSum;
+    }, 0);
 
-  const totalGarageEarnings = garagePartsRevenue + garageLabourRevenue;
-  const mechanicEarnings = independentMechanicLabour;
+    const independentMechanicLabour = filteredBills.reduce((sum, b) => {
+      const labourSum = b.services?.filter(s => s.mechanicType === 'Independent')
+        .reduce((lSum, s) => lSum + Number(s.finalCharge || 0), 0) || 0;
+      return sum + labourSum;
+    }, 0);
+
+    const totalGarageEarnings = garagePartsRevenue + garageLabourRevenue;
+    const mechanicEarnings = independentMechanicLabour;
+
+    return {
+      filteredBills,
+      filteredImports,
+      filteredPayments,
+      totalSales,
+      totalOutstanding,
+      totalCollections,
+      billsCount,
+      uniqueCustomers,
+      uniqueVehicles,
+      garagePartsRevenue,
+      garageLabourRevenue,
+      totalGarageEarnings,
+      mechanicEarnings,
+      independentMechanicLabour,
+      importCollections
+    };
+  }, [bills, imports, filterMode, startDate, endDate]);
+
+  const {
+    filteredBills, filteredImports, filteredPayments,
+    totalSales, totalOutstanding, totalCollections,
+    billsCount, uniqueCustomers, uniqueVehicles,
+    garagePartsRevenue, garageLabourRevenue,
+    totalGarageEarnings, mechanicEarnings, independentMechanicLabour, importCollections
+  } = reportMetrics;
 
   // Collections by Payment Method
   const paymentMethodsTotal = filteredPayments.reduce((acc, p) => {

@@ -8,7 +8,7 @@ import { getSettings, searchUniversal } from '../actions';
 import { Search, User, Bike, FileText, ArrowRight, RefreshCw, AlertCircle } from 'lucide-react';
 import { toast } from 'sonner';
 
-const searchCache: Record<string, any[]> = {};
+const searchCacheMap = new Map<string, any[]>();
 
 export default function SearchPage() {
   const [garageName, setGarageName] = useState('GarageBook');
@@ -31,28 +31,33 @@ export default function SearchPage() {
     }
   }, []);
 
-  // Run search query (with debounce and local cache)
+  // Run search query (with 300ms debounce and local Map LRU cache)
   useEffect(() => {
+    const trimmed = query.trim().toLowerCase();
+    if (!trimmed) {
+      setResults([]);
+      setSearching(false);
+      return;
+    }
+
+    // Check in-memory Map cache immediately
+    if (searchCacheMap.has(trimmed)) {
+      setResults(searchCacheMap.get(trimmed)!);
+      setSearching(false);
+      return;
+    }
+
+    setSearching(true);
     const delayDebounce = setTimeout(async () => {
-      const trimmed = query.trim().toLowerCase();
-      if (!trimmed) {
-        setResults([]);
-        setSearching(false);
-        return;
-      }
-
-      // Check memory cache first
-      if (searchCache[trimmed]) {
-        setResults(searchCache[trimmed]);
-        setSearching(false);
-        return;
-      }
-
-      setSearching(true);
       try {
         const searchData = await searchUniversal(trimmed);
         const fetchedResults = searchData || [];
-        searchCache[trimmed] = fetchedResults;
+        searchCacheMap.set(trimmed, fetchedResults);
+        // Limit cache size to 100 entries
+        if (searchCacheMap.size > 100) {
+          const firstKey = searchCacheMap.keys().next().value;
+          if (firstKey) searchCacheMap.delete(firstKey);
+        }
         setResults(fetchedResults);
       } catch (err) {
         console.error('Search error:', err);
@@ -60,7 +65,7 @@ export default function SearchPage() {
       } finally {
         setSearching(false);
       }
-    }, 150);
+    }, 300);
 
     return () => clearTimeout(delayDebounce);
   }, [query]);
