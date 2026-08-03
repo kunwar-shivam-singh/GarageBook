@@ -61,6 +61,7 @@ export default function JobCardClient({ bill: initialBill, settings }: JobCardCl
   const [paymentNotes, setPaymentNotes] = useState('');
   const [expectedClearanceDate, setExpectedClearanceDate] = useState('');
   const [overallDiscountVal, setOverallDiscountVal] = useState(String(initialBill.overallDiscount || 0));
+  const [showLabourPromptModal, setShowLabourPromptModal] = useState(false);
 
   // Run timer ticking interval every second
   useEffect(() => {
@@ -266,12 +267,7 @@ export default function JobCardClient({ bill: initialBill, settings }: JobCardCl
   };
 
   // Timer Buttons Action
-  const handleTimerAction = async (action: 'START' | 'PAUSE' | 'RESUME' | 'COMPLETE') => {
-    if ((action === 'START' || action === 'RESUME' || action === 'COMPLETE') && !bill.mechanicId) {
-      toast.error('Please assign a mechanic first before starting or completing work.');
-      return;
-    }
-
+  const executeTimerAction = async (action: 'START' | 'PAUSE' | 'RESUME' | 'COMPLETE') => {
     try {
       setSaving(true);
       await logTimerAction(bill.id, action);
@@ -294,6 +290,23 @@ export default function JobCardClient({ bill: initialBill, settings }: JobCardCl
     } finally {
       setSaving(false);
     }
+  };
+
+  const handleTimerAction = async (action: 'START' | 'PAUSE' | 'RESUME' | 'COMPLETE') => {
+    if ((action === 'START' || action === 'RESUME' || action === 'COMPLETE') && !bill.mechanicId) {
+      toast.error('Please assign a mechanic first before starting or completing work.');
+      return;
+    }
+
+    if (action === 'COMPLETE') {
+      const hasLabour = (bill.services && bill.services.length > 0) || (bill.labour && Number(bill.labour) > 0);
+      if (!hasLabour) {
+        setShowLabourPromptModal(true);
+        return;
+      }
+    }
+
+    await executeTimerAction(action);
   };
 
   // Add Part Modal Saver
@@ -1042,6 +1055,50 @@ export default function JobCardClient({ bill: initialBill, settings }: JobCardCl
                 </form>
               )}
 
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* LABOUR VALIDATION PROMPT MODAL */}
+      {showLabourPromptModal && (
+        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-white border border-slate-200 rounded-3xl p-6 shadow-2xl max-w-sm w-full space-y-4 animate-in zoom-in-95 duration-150">
+            <div className="flex items-center gap-3 text-amber-600">
+              <div className="h-10 w-10 rounded-2xl bg-amber-50 border border-amber-200 flex items-center justify-center flex-shrink-0">
+                <AlertTriangle className="h-5 w-5 text-amber-600" />
+              </div>
+              <div>
+                <h3 className="text-base font-black text-slate-900">No Labour Entered</h3>
+                <p className="text-xs text-slate-500 font-semibold">No labour charges have been entered for this vehicle.</p>
+              </div>
+            </div>
+
+            <p className="text-xs text-slate-600 font-medium leading-relaxed bg-slate-50 border border-slate-150 rounded-xl p-3">
+              No labour services are registered on this job card. Would you like to add labour charges before ending work, or continue for a parts-only customer?
+            </p>
+
+            <div className="flex flex-col gap-2 pt-2 text-xs font-black">
+              <button
+                type="button"
+                onClick={() => {
+                  setShowLabourPromptModal(false);
+                  setActiveModal('add_labour');
+                }}
+                className="w-full py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl shadow-md transition-all active:scale-95 text-center"
+              >
+                + Add Labour Charges
+              </button>
+              <button
+                type="button"
+                onClick={async () => {
+                  setShowLabourPromptModal(false);
+                  await executeTimerAction('COMPLETE');
+                }}
+                className="w-full py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl border border-slate-200 transition-all active:scale-95 text-center"
+              >
+                Continue Without Labour
+              </button>
             </div>
           </div>
         </div>

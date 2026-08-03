@@ -140,26 +140,26 @@ export default function WorkingClient({ initialJobs, settings, mechanics }: Work
   };
 
   const executeEndJob = async (job: Bill) => {
+    const previousJobs = [...jobs];
+    // Optimistic UI removal immediately (0ms delay)
+    setJobs(prev => prev.filter(j => j.id !== job.id));
+
     try {
-      // First COMPLETE timer
-      let updated = job;
       if (job.timerState === 'RUNNING' || job.timerState === 'PAUSED') {
-        updated = await logTimerAction(job.id, 'COMPLETE');
+        await logTimerAction(job.id, 'COMPLETE');
       }
 
-      // Then save status as Completed
-      const finalized = await updateBill(job.id, {
+      await updateBill(job.id, {
         jobStatus: 'Completed'
       } as any);
 
-      // Remove from list
-      setJobs(prev => prev.filter(j => j.id !== job.id));
       toast.success('Job ended successfully! Card moved to Awaiting Bill Generation.');
       if (typeof window !== 'undefined') {
         window.dispatchEvent(new CustomEvent('gb-data-changed'));
       }
     } catch (err) {
       console.error(err);
+      setJobs(previousJobs);
       toast.error('Failed to end service job.');
     }
   };

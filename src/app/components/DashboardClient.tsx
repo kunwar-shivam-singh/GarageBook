@@ -87,6 +87,8 @@ export default function DashboardClient({ initialBills, settings }: DashboardCli
 
   // Delivery Expected Date check state
   const [showClearanceModal, setShowClearanceModal] = useState<{ bill: Bill } | null>(null);
+  const [showLabourPromptModal, setShowLabourPromptModal] = useState<{ bill: Bill } | null>(null);
+  const [updatingId, setUpdatingId] = useState<string | null>(null);
   const [deliveryClearanceDate, setDeliveryClearanceDate] = useState('');
 
   // Fetch suggestions and mechanics on load (with cache layer)
@@ -359,19 +361,51 @@ export default function DashboardClient({ initialBills, settings }: DashboardCli
     }
   };
 
-  // Complete Job Trigger
-  const handleCompleteJob = async (bill: Bill) => {
-    await recalculateAndSave(bill, { jobStatus: 'Ready for Delivery' });
+  // Complete Job Execution with Optimistic UI Update
+  const executeCompleteJob = async (bill: Bill) => {
+    const previousBills = [...bills];
+    setUpdatingId(bill.id);
+    // Optimistic UI update immediately (0ms delay)
+    setBills(prev => prev.map(b => b.id === bill.id ? { ...b, jobStatus: 'Ready for Delivery' } : b));
+
+    try {
+      await recalculateAndSave(bill, { jobStatus: 'Ready for Delivery' });
+    } catch (err) {
+      // Rollback on failure
+      setBills(previousBills);
+      toast.error('Failed to complete job.');
+    } finally {
+      setUpdatingId(null);
+    }
   };
 
-  // Deliver Vehicle Validation Trigger
+  const handleCompleteJob = async (bill: Bill) => {
+    const hasLabour = (bill.services && bill.services.length > 0) || (bill.labour && Number(bill.labour) > 0);
+    if (!hasLabour) {
+      setShowLabourPromptModal({ bill });
+      return;
+    }
+    await executeCompleteJob(bill);
+  };
+
+  // Deliver Vehicle Validation Trigger with Optimistic Update
   const handleDeliverVehicle = async (bill: Bill) => {
-    // Deliver rules: block delivery if dues exist without clearance date
     if (bill.remainingAmount > 0 && !bill.expectedPaymentDate) {
       setShowClearanceModal({ bill });
       return;
     }
-    await recalculateAndSave(bill, { jobStatus: 'Delivered' });
+    const previousBills = [...bills];
+    setUpdatingId(bill.id);
+    setBills(prev => prev.map(b => b.id === bill.id ? { ...b, jobStatus: 'Delivered' } : b));
+
+    try {
+      await recalculateAndSave(bill, { jobStatus: 'Delivered' });
+    } catch (err) {
+      setBills(previousBills);
+      toast.error('Failed to deliver vehicle.');
+    } finally {
+      setUpdatingId(null);
+    }
   };
 
   // Save Delivery Clearance Date
@@ -1268,6 +1302,52 @@ export default function DashboardClient({ initialBills, settings }: DashboardCli
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* LABOUR VALIDATION PROMPT MODAL */}
+      {showLabourPromptModal && (
+        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-white border border-slate-200 rounded-3xl p-6 shadow-2xl max-w-sm w-full space-y-4 animate-in zoom-in-95 duration-150">
+            <div className="flex items-center gap-3 text-amber-600">
+              <div className="h-10 w-10 rounded-2xl bg-amber-50 border border-amber-200 flex items-center justify-center flex-shrink-0">
+                <AlertTriangle className="h-5 w-5 text-amber-600" />
+              </div>
+              <div>
+                <h3 className="text-base font-black text-slate-900">No Labour Entered</h3>
+                <p className="text-xs text-slate-500 font-semibold">No labour charges have been entered for this vehicle.</p>
+              </div>
+            </div>
+
+            <p className="text-xs text-slate-600 font-medium leading-relaxed bg-slate-50 border border-slate-150 rounded-xl p-3">
+              No labour services are registered on this job card. Would you like to add labour charges before ending work, or continue for a parts-only customer?
+            </p>
+
+            <div className="flex flex-col gap-2 pt-2 text-xs font-black">
+              <button
+                type="button"
+                onClick={() => {
+                  const target = showLabourPromptModal.bill;
+                  setShowLabourPromptModal(null);
+                  setActiveModal({ bill: target, type: 'add_labour' });
+                }}
+                className="w-full py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl shadow-md transition-all active:scale-95 text-center"
+              >
+                + Add Labour Charges
+              </button>
+              <button
+                type="button"
+                onClick={async () => {
+                  const target = showLabourPromptModal.bill;
+                  setShowLabourPromptModal(null);
+                  await executeCompleteJob(target);
+                }}
+                className="w-full py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl border border-slate-200 transition-all active:scale-95 text-center"
+              >
+                Continue Without Labour
+              </button>
+            </div>
           </div>
         </div>
       )}

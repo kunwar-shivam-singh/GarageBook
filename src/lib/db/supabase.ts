@@ -1248,13 +1248,21 @@ export const supabaseDb = {
       resolvedMechanicId = mech.id;
     }
 
-    // 4. Generate Invoice Number
-    const { count, error: countError } = await client
+    // 4. Generate Invoice Number (MAX invoice number suffix + 1)
+    const { data: existingBills } = await client
       .from('bills')
-      .select('*', { count: 'exact', head: true })
+      .select('invoice_number')
       .eq('garage_id', garageId);
-    if (countError) throw countError;
-    const invoiceNumber = `GB-${1001 + (count || 0)}`;
+
+    let lastInvoiceNumber = 1000;
+    (existingBills || []).forEach((b: any) => {
+      const match = b.invoice_number?.match(/GB-(\d+)/);
+      if (match) {
+        const num = parseInt(match[1], 10);
+        if (num > lastInvoiceNumber) lastInvoiceNumber = num;
+      }
+    });
+    const invoiceNumber = `GB-${lastInvoiceNumber + 1}`;
 
     // 5. Insert Bill record
     const { data: billData, error: billError } = await client
@@ -1521,72 +1529,93 @@ export const supabaseDb = {
 
     if (billError) throw billError;
 
-    // 3. Clear existing items, services, advances, followups
-    await client.from('bill_items').delete().eq('bill_id', id).eq('garage_id', garageId);
-    await client.from('services').delete().eq('bill_id', id).eq('garage_id', garageId);
-    await client.from('advances').delete().eq('bill_id', id).eq('garage_id', garageId);
-    await client.from('followups').delete().eq('bill_id', id).eq('garage_id', garageId);
-
-    // 4. Re-insert items
-    const itemsPayload = items.map((item: any) => ({
-      garage_id: garageId,
-      bill_id: id,
-      name: item.name.trim(),
-      price: Number(item.finalPrice || item.unitPrice || 0),
-      quantity: Number(item.quantity || 1),
-      unit_price: Number(item.unitPrice || 0),
-      discount_percentage: Number(item.discountPercentage || 0),
-      discount_amount: Number(item.discountAmount || 0),
-      final_price: Number(item.finalPrice || 0),
-      discount_type: item.discountType || 'PERCENT',
-      discount_value: Number(item.discountValue || 0),
-    }));
-
-    const { error: itemsError } = await client.from('bill_items').insert(itemsPayload);
-    if (itemsError) throw itemsError;
-
-    // 5. Re-insert services
-    if (inputServices && inputServices.length > 0) {
-      const servicesPayload = [];
-      for (const s of inputServices) {
-        let servMechId = s.mechanicId || null;
-        let sWorkType = s.mechanicType || 'Salary';
-        let sCommRate = s.commissionRate || 0;
-        if (s.mechanicName && s.mechanicName.trim()) {
-          const mechObj = await supabaseDb.createMechanic(garageId, s.mechanicName, client);
-          servMechId = mechObj.id;
-          sWorkType = mechObj.workType;
-          sCommRate = Number(mechObj.commissionRate || 0);
-        } else if (servMechId) {
-          const { data: mechData } = await client
-            .from('mechanics')
-            .select('work_type, commission_rate')
-            .eq('id', servMechId)
-            .single();
-          if (mechData) {
-            sWorkType = mechData.work_type;
-            sCommRate = Number(mechData.commission_rate || 0);
-          }
-        }
-        servicesPayload.push({
+    // 3. Clear & re-insert items ONLY if items array is explicitly passed
+    if (items !== undefined) {
+      await client.from('bill_items').delete().eq('bill_id', id).eq('garage_id', garageId);
+      if (items.length > 0) {
+        const itemsPayload = items.map((item: any) => ({
           garage_id: garageId,
           bill_id: id,
-          name: s.name.trim(),
-          mechanic_id: servMechId,
-          labour_charge: Number(s.labourCharge || 0),
-          discount: Number(s.discount || 0),
-          final_charge: Number(s.finalCharge || 0),
-          mechanic_type: sWorkType,
-          commission_rate: sCommRate,
-          working_time: Number(s.workingTime || 0),
-          start_time: s.startTime || null,
-          end_time: s.endTime || null,
-          discount_type: s.discountType || 'FLAT',
-          discount_value: Number(s.discountValue || 0),
-        });
+          name: (item.name || '').trim(),
+          price: Number(item.finalPrice || item.unitPrice || 0),
+          quantity: Number(item.quantity || 1),
+          unit_price: Number(item.unitPrice || 0),
+          discount_percentage: Number(item.discountPercentage || 0),
+          discount_amount: Number(item.discountAmount || 0),
+          final_price: Number(item.finalPrice || 0),
+          discount_type: item.discountType || 'PERCENT',
+          discount_value: Number(item.discountValue || 0),
+        }));
+
+        const { error: itemsError } = await client.from('bill_items').insert(itemsPayload);
+        if (itemsError) throw itemsError;
       }
-      const { error: servError } = await client.from('services').insert(servicesPayload);
-      if (servError) throw servError;
+    }
+
+    // 4. Clear & re-insert services ONLY if inputServices is explicitly passed
+    if (inputServices !== undefined) {
+      await client.from('services').delete().eq('bill_id', id).eq('garage_id', garageId);
+      if (inputServices.length > 0) {
+        const servicesPayload = [];
+        for (const s of inputServices) {
+          let servMechId = s.mechanicId || null;
+          let sWorkType = s.mechanicType || 'Salary';
+          let sCommRate = s.commissionRate || 0;
+          if (s.mechanicName && s.mechanicName.trim()) {
+            const mechObj = await supabaseDb.createMechanic(garageId, s.mechanicName, client);
+            servMechId = mechObj.id;
+            sWorkType = mechObj.workType;
+            sCommRate = Number(mechObj.commissionRate || 0);
+          } else if (servMechId) {
+            const { data: mechData } = await client
+              .from('mechanics')
+              .select('work_type, commission_rate')
+              .eq('id', servMechId)
+              .maybeSingle();
+            if (mechData) {
+              sWorkType = mechData.work_type;
+              sCommRate = Number(mechData.commission_rate || 0);
+            }
+          }
+          servicesPayload.push({
+            garage_id: garageId,
+            bill_id: id,
+            name: (s.name || '').trim(),
+            mechanic_id: servMechId,
+            labour_charge: Number(s.labourCharge || 0),
+            discount: Number(s.discount || 0),
+            final_charge: Number(s.finalCharge || 0),
+            mechanic_type: sWorkType,
+            commission_rate: sCommRate,
+            working_time: Number(s.workingTime || 0),
+            start_time: s.startTime || null,
+            end_time: s.endTime || null,
+            discount_type: s.discountType || 'FLAT',
+            discount_value: Number(s.discountValue || 0),
+          });
+        }
+        const { error: servError } = await client.from('services').insert(servicesPayload);
+        if (servError) throw servError;
+      }
+    }
+
+    // 5. Clear & re-insert advances ONLY if inputAdvances is explicitly passed
+    if (inputAdvances !== undefined) {
+      await client.from('advances').delete().eq('bill_id', id).eq('garage_id', garageId);
+      if (inputAdvances.length > 0) {
+        const advancesPayload = inputAdvances
+          .filter((adv: any) => adv.amount > 0)
+          .map((adv: any) => ({
+            garage_id: garageId,
+            bill_id: id,
+            amount: Number(adv.amount),
+            payment_mode: adv.paymentMode,
+          }));
+        if (advancesPayload.length > 0) {
+          const { error: advError } = await client.from('advances').insert(advancesPayload);
+          if (advError) throw advError;
+        }
+      }
     }
 
     // 6. Re-insert advances
@@ -2086,10 +2115,19 @@ export const supabaseDb = {
 
     if (jobError) throw jobError;
 
-    await client.from('bill_items').delete().eq('job_id', id);
-    await client.from('services').delete().eq('job_id', id);
-    await client.from('advances').delete().eq('job_id', id);
-    await client.from('followups').delete().eq('job_id', id);
+    if (items !== undefined) {
+      await client.from('bill_items').delete().eq('job_id', id);
+    }
+    if (inputServices !== undefined) {
+      await client.from('services').delete().eq('job_id', id);
+    }
+    if (inputAdvances !== undefined) {
+      await client.from('advances').delete().eq('job_id', id);
+    }
+    // Only delete followups if we are re-inserting them
+    if (paymentStatus !== 'PAID' && expectedPaymentDate) {
+      await client.from('followups').delete().eq('job_id', id);
+    }
 
     if (items && items.length > 0) {
       const itemsPayload = items.map((item) => ({
@@ -2247,12 +2285,12 @@ export const supabaseDb = {
 
     if (billError) throw billError;
 
-    await client.from('bill_items').update({ bill_id: billData.id }).eq('job_id', jobId);
-    await client.from('services').update({ bill_id: billData.id }).eq('job_id', jobId);
-    await client.from('payments').update({ bill_id: billData.id }).eq('job_id', jobId);
-    await client.from('advances').update({ bill_id: billData.id }).eq('job_id', jobId);
-    await client.from('job_timers').update({ bill_id: billData.id }).eq('job_id', jobId);
-    await client.from('followups').update({ bill_id: billData.id }).eq('job_id', jobId);
+    await client.from('bill_items').update({ bill_id: billData.id, job_id: null }).eq('job_id', jobId);
+    await client.from('services').update({ bill_id: billData.id, job_id: null }).eq('job_id', jobId);
+    await client.from('payments').update({ bill_id: billData.id, job_id: null }).eq('job_id', jobId);
+    await client.from('advances').update({ bill_id: billData.id, job_id: null }).eq('job_id', jobId);
+    await client.from('job_timers').update({ bill_id: billData.id, job_id: null }).eq('job_id', jobId);
+    await client.from('followups').update({ bill_id: billData.id, job_id: null }).eq('job_id', jobId);
 
     await client.from('service_jobs').delete().eq('id', jobId);
 

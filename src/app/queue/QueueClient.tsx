@@ -10,6 +10,7 @@ import Navigation from '../components/Navigation';
 import Header from '../components/Header';
 import { Bill, Mechanic } from '@/lib/db/types';
 import { logTimerAction, updateBill } from '@/app/actions';
+import LabourPromptModal from '../components/LabourPromptModal';
 
 interface QueueClientProps {
   initialQueue: Bill[];
@@ -25,6 +26,7 @@ export default function QueueClient({ initialQueue, initialMechanics, garageName
   const [searchQuery, setSearchQuery] = useState<string>('');
   const [currentTime, setCurrentTime] = useState<number>(Date.now());
   const [updatingId, setUpdatingId] = useState<string | null>(null);
+  const [showLabourPromptJob, setShowLabourPromptJob] = useState<Bill | null>(null);
 
   // Force re-render of active timers every second
   useEffect(() => {
@@ -51,14 +53,51 @@ export default function QueueClient({ initialQueue, initialMechanics, garageName
         return;
       }
 
-      setUpdatingId(billId);
-      const updatedBill = await logTimerAction(billId, action);
-      
-      setQueue(prev => prev.map(b => b.id === billId ? { ...b, ...updatedBill } : b));
-      router.refresh();
+      if (action === 'COMPLETE') {
+        const hasLabour = (bill.services && bill.services.length > 0) || (bill.labour && Number(bill.labour) > 0);
+        if (!hasLabour) {
+          setShowLabourPromptJob(bill);
+          return;
+        }
+      }
+
+      await executeTimerAction(billId, action);
     } catch (error) {
       console.error('Timer action failed:', error);
       alert('Failed to log timer action. Please try again.');
+    }
+  };
+
+  const executeTimerAction = async (billId: string, action: 'START' | 'PAUSE' | 'RESUME' | 'COMPLETE') => {
+    const previousQueue = [...queue];
+    try {
+      setUpdatingId(billId);
+      
+      // Optimistic UI update immediately (0ms delay)
+      setQueue(prev => prev.map(b => {
+        if (b.id !== billId) return b;
+        let nextStatus = b.jobStatus;
+        if (action === 'START' || action === 'RESUME') nextStatus = 'Working';
+        if (action === 'PAUSE') nextStatus = 'Waiting for Parts';
+        if (action === 'COMPLETE') nextStatus = 'Completed';
+        
+        let timerState = b.timerState;
+        if (action === 'START' || action === 'RESUME') timerState = 'RUNNING';
+        if (action === 'PAUSE') timerState = 'PAUSED';
+        if (action === 'COMPLETE') timerState = 'COMPLETED';
+        
+        return { ...b, jobStatus: nextStatus as any, timerState: timerState as any };
+      }));
+      
+      const updatedBill = await logTimerAction(billId, action);
+      
+      // Sync with real DB state
+      setQueue(prev => prev.map(b => b.id === billId ? { ...b, ...updatedBill } : b));
+      router.refresh();
+    } catch (error) {
+      console.error('Timer action execute failed:', error);
+      setQueue(previousQueue);
+      alert('Failed to execute timer action. Please try again.');
     } finally {
       setUpdatingId(null);
     }
@@ -124,6 +163,7 @@ export default function QueueClient({ initialQueue, initialMechanics, garageName
   };
 
   const handleDeliver = async (billId: string) => {
+    const previousQueue = [...queue];
     try {
       const bill = queue.find(b => b.id === billId);
       if (!bill) return;
@@ -135,6 +175,9 @@ export default function QueueClient({ initialQueue, initialMechanics, garageName
       }
 
       setUpdatingId(billId);
+      // Optimistically remove from queue immediately (0ms delay)
+      setQueue(prev => prev.filter(b => b.id !== billId));
+
       const updatedBill = await updateBill(billId, {
         date: bill.date,
         labour: Number(bill.labour || 0),
@@ -168,13 +211,13 @@ export default function QueueClient({ initialQueue, initialMechanics, garageName
 
       const targetId = updatedBill?.id || billId;
 
-      setQueue(prev => prev.filter(b => b.id !== billId && b.id !== targetId));
       if (typeof window !== 'undefined') {
         window.dispatchEvent(new CustomEvent('gb-data-changed'));
       }
       router.push(`/bill/${targetId}`);
     } catch (error) {
       console.error('Failed to deliver vehicle:', error);
+      setQueue(previousQueue);
       alert('Failed to update status. Please try again.');
     } finally {
       setUpdatingId(null);
@@ -594,11 +637,11 @@ export default function QueueClient({ initialQueue, initialMechanics, garageName
                         
                         <button
                           type="button"
-                          disabled={isUpdating || bill.jobStatus === 'Completed' || bill.jobStatus === 'Delivered'}
+                          disabled={updatingId === bill.id || bill.jobStatus === 'Completed' || bill.jobStatus === 'Delivered'}
                           onClick={() => handleAction(bill.id, 'COMPLETE')}
                           className="h-12 bg-green-600 hover:bg-green-700 active:bg-green-800 text-white disabled:opacity-50 disabled:bg-slate-100 disabled:text-slate-400 rounded-xl font-extrabold text-xs transition-colors flex items-center justify-center gap-1"
                         >
-                          {bill.jobStatus === 'Completed' || bill.jobStatus === 'Delivered' ? '✓ Completed' : 'Complete Job'}
+                          {updatingId === bill.id ? 'Processing...' : (bill.jobStatus === 'Completed' || bill.jobStatus === 'Delivered' ? '✓ Completed' : 'Complete Job')}
                         </button>
                       </div>
                     </div>
@@ -610,6 +653,22 @@ export default function QueueClient({ initialQueue, initialMechanics, garageName
 
         </main>
       </div>
+
+      <LabourPromptModal
+        isOpen={!!showLabourPromptJob}
+        invoiceNumber={showLabourPromptJob?.invoiceNumber}
+        onClose={() => setShowLabourPromptJob(null)}
+        onAddLabour={() => {
+          if (showLabourPromptJob) {
+            router.push(`/bill/${showLabourPromptJob.id}/edit?focus=services`);
+          }
+        }}
+        onContinue={() => {
+          if (showLabourPromptJob) {
+            executeTimerAction(showLabourPromptJob.id, 'COMPLETE');
+          }
+        }}
+      />
     </div>
   );
 }
