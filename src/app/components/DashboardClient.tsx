@@ -37,8 +37,8 @@ export default function DashboardClient({ initialBills, settings }: DashboardCli
 
   const allJobs = useSyncExternalStore(
     jobStore.subscribe,
-    jobStore.getAll.bind(jobStore),
-    () => initialBills as any
+    jobStore.getAll,
+    jobStore.getAll
   );
 
   const bills = useMemo(() => {

@@ -28,8 +28,8 @@ export default function QueueClient({ initialQueue, initialMechanics, garageName
 
   const allJobs = useSyncExternalStore(
     jobStore.subscribe,
-    jobStore.getAll.bind(jobStore),
-    () => initialQueue as any
+    jobStore.getAll,
+    jobStore.getAll
   );
 
   const queue = useMemo(() => {

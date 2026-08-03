@@ -34,10 +34,15 @@ export default function JobCardClient({ bill: initialBill, settings }: JobCardCl
     jobStore.set(initialBill as any);
   }, [initialBill]);
 
+  const getBillSnapshot = React.useCallback(
+    () => jobStore.get(initialBill.id) || initialBill,
+    [initialBill]
+  );
+
   const bill: Bill = useSyncExternalStore(
     jobStore.subscribe,
-    () => jobStore.get(initialBill.id) || initialBill,
-    () => initialBill
+    getBillSnapshot,
+    getBillSnapshot
   ) as Bill;
 
   const setBill = (updatedBill: Bill | ((prev: Bill) => Bill)) => {
