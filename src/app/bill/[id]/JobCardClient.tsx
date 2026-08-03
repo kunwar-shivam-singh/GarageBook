@@ -31,6 +31,11 @@ export default function JobCardClient({ bill: initialBill, settings }: JobCardCl
   const [currentTime, setCurrentTime] = useState<number>(Date.now());
   const [saving, setSaving] = useState(false);
 
+  // Sync state if server revalidates and passes new props
+  useEffect(() => {
+    setBill(initialBill);
+  }, [initialBill]);
+
   // Suggestions and Mechanics database stores
   const [partSuggestions, setPartSuggestions] = useState<PartSuggestion[]>([]);
   const [serviceSuggestions, setServiceSuggestions] = useState<ServiceSuggestion[]>([]);
@@ -268,24 +273,38 @@ export default function JobCardClient({ bill: initialBill, settings }: JobCardCl
 
   // Timer Buttons Action
   const executeTimerAction = async (action: 'START' | 'PAUSE' | 'RESUME' | 'COMPLETE') => {
+    const previousBill = { ...bill };
     try {
       setSaving(true);
-      await logTimerAction(bill.id, action);
       
+      // Calculate optimistic state
       const nextStatus = action === 'START' || action === 'RESUME' 
         ? 'Working' 
-        : (action === 'PAUSE' ? 'Waiting for Parts' : 'Ready for Delivery');
-        
-      const fresh = await getBillById(bill.id);
-      if (fresh) {
-        setBill({ ...fresh, jobStatus: nextStatus as any });
+        : (action === 'PAUSE' ? 'Waiting for Parts' : 'Completed');
+      
+      let nextTimerState = bill.timerState;
+      if (action === 'START' || action === 'RESUME') nextTimerState = 'RUNNING';
+      if (action === 'PAUSE') nextTimerState = 'PAUSED';
+      if (action === 'COMPLETE') nextTimerState = 'COMPLETED';
+
+      // 1. Optimistic UI update immediately (0ms delay)
+      setBill(prev => ({ ...prev, jobStatus: nextStatus as any, timerState: nextTimerState as any }));
+
+      // 2. Server DB update
+      const updated = await logTimerAction(bill.id, action);
+      
+      // 3. Re-sync exactly with server return
+      if (updated) {
+        setBill(prev => ({ ...prev, ...updated, jobStatus: updated.jobStatus as any }));
       }
+      
       toast.success(`Timer action "${action}" registered.`);
       if (typeof window !== 'undefined') {
         window.dispatchEvent(new CustomEvent('gb-data-changed'));
       }
     } catch (err) {
       console.error(err);
+      setBill(previousBill); // Rollback on failure
       toast.error('Failed to update timer state.');
     } finally {
       setSaving(false);
@@ -511,7 +530,7 @@ export default function JobCardClient({ bill: initialBill, settings }: JobCardCl
   const checkedInDate = new Date(bill.date).toLocaleDateString('en-GB');
 
   // Check if we are in Billing mode or active Mechanic mode
-  const isBillingMode = bill.jobStatus === 'Ready for Delivery';
+  const isBillingMode = bill.jobStatus === 'Ready for Delivery' || bill.jobStatus === 'Completed' || bill.jobStatus === 'Delivered';
 
   return (
     <div className="flex min-h-screen bg-slate-50">
