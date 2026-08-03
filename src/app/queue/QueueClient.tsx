@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useSyncExternalStore } from 'react';
 import { useRouter } from 'next/navigation';
 import { 
   Play, Pause, CheckCircle, User, Phone, Clock, 
@@ -11,6 +11,7 @@ import Header from '../components/Header';
 import { Bill, Mechanic } from '@/lib/db/types';
 import { logTimerAction, updateBill } from '@/app/actions';
 import LabourPromptModal from '../components/LabourPromptModal';
+import { jobStore } from '@/lib/store';
 
 interface QueueClientProps {
   initialQueue: Bill[];
@@ -20,7 +21,31 @@ interface QueueClientProps {
 
 export default function QueueClient({ initialQueue, initialMechanics, garageName }: QueueClientProps) {
   const router = useRouter();
-  const [queue, setQueue] = useState<Bill[]>(initialQueue);
+  // Use global state as source of truth
+  useEffect(() => {
+    jobStore.setMultiple(initialQueue as any);
+  }, [initialQueue]);
+
+  const allJobs = useSyncExternalStore(
+    jobStore.subscribe,
+    jobStore.getAll.bind(jobStore),
+    () => initialQueue as any
+  );
+
+  const queue = useMemo(() => {
+    const ids = new Set(initialQueue.map(j => j.id));
+    return allJobs.filter((j: any) => ids.has(j.id)) as Bill[];
+  }, [allJobs, initialQueue]);
+
+  const setQueue = (newQueue: Bill[] | ((prev: Bill[]) => Bill[])) => {
+    if (typeof newQueue === 'function') {
+      const updated = newQueue(queue);
+      jobStore.setMultiple(updated as any);
+    } else {
+      jobStore.setMultiple(newQueue as any);
+    }
+  };
+
   const [mechanics] = useState<Mechanic[]>(initialMechanics);
   const [filterStatus, setFilterStatus] = useState<string>('ALL');
   const [searchQuery, setSearchQuery] = useState<string>('');
@@ -176,7 +201,7 @@ export default function QueueClient({ initialQueue, initialMechanics, garageName
 
       setUpdatingId(billId);
       // Optimistically remove from queue immediately (0ms delay)
-      setQueue(prev => prev.filter(b => b.id !== billId));
+      setQueue((prev: Bill[]) => prev.filter(b => b.id !== billId));
 
       const updatedBill = await updateBill(billId, {
         date: bill.date,

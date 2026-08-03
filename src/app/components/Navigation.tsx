@@ -9,6 +9,8 @@ import {
   FileText, LogOut, BookOpen, Clock, Wrench, Upload,
   X, Menu, HelpCircle, Info, Users, Play
 } from 'lucide-react';
+import { getBillById } from '@/app/actions';
+import { jobStore } from '@/lib/store';
 
 interface NavigationProps {
   garageName: string;
@@ -55,33 +57,50 @@ export default function Navigation({ garageName }: NavigationProps) {
 
   // Real-time synchronization across tabs and devices
   useEffect(() => {
+    // 1. Same-device tab synchronization (optimistic updates propagation)
     let bc: BroadcastChannel | null = null;
     if (typeof window !== 'undefined' && 'BroadcastChannel' in window) {
       bc = new BroadcastChannel('gb_realtime_sync');
       bc.onmessage = (event) => {
-        if (event.data === 'gb-data-changed') {
+        if (event.data === 'refresh') {
+          // If we want to refresh everything
           router.refresh();
         }
       };
     }
 
-    const handleCustomEvent = () => {
-      if (bc) {
-        try {
-          bc.postMessage('gb-data-changed');
-        } catch (e) {
-          // Ignore closed channel errors
+    // 2. Cross-device true real-time sync via Supabase
+    const channel = supabase.channel('public:service_jobs')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'service_jobs' }, async (payload) => {
+        // Debounce or just fetch immediately
+        if (payload.eventType === 'INSERT' || payload.eventType === 'UPDATE') {
+          const jobId = payload.new.id;
+          try {
+            const updatedJob = await getBillById(jobId);
+            if (updatedJob) {
+              jobStore.set(updatedJob as any);
+            }
+          } catch (e) {
+            console.error('Failed to sync realtime job:', e);
+          }
+        } else if (payload.eventType === 'DELETE') {
+          jobStore.remove(payload.old.id);
         }
-      }
-      router.refresh();
+      })
+      .subscribe();
+
+    const handleFocus = () => {
+      // Re-fetch active data? No, realtime handles it.
     };
 
-    window.addEventListener('gb-data-changed', handleCustomEvent);
+    window.addEventListener('focus', handleFocus);
+
     return () => {
-      window.removeEventListener('gb-data-changed', handleCustomEvent);
-      if (bc) bc.close();
+      bc?.close();
+      window.removeEventListener('focus', handleFocus);
+      supabase.removeChannel(channel);
     };
-  }, [router]);
+  }, [router, supabase]);
 
   // 1. Swipe right from left edge to open the drawer
   useEffect(() => {

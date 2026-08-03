@@ -53,7 +53,8 @@ function mapVehicle(dbVehicle: any): Vehicle {
 function mapBillItem(dbItem: any): BillItem {
   return {
     id: dbItem.id,
-    billId: dbItem.bill_id,
+    billId: dbItem.bill_id || dbItem.job_id,
+    jobId: dbItem.job_id,
     name: dbItem.name,
     price: dbItem.price ? Number(dbItem.price) : null,
     quantity: dbItem.quantity ? Number(dbItem.quantity) : 1,
@@ -2083,37 +2084,41 @@ export const supabaseDb = {
       serviceNotes, showServiceNotes
     } = input;
 
-    let resolvedMechanicId = mechanicId || null;
+    const updatePayload: any = {};
+    if (date !== undefined) updatePayload.date = date;
+    if (labour !== undefined) updatePayload.labour = Number(labour) || 0;
+    if (notes !== undefined) updatePayload.notes = notes ? notes.trim() : '';
+    if (paymentStatus !== undefined) updatePayload.payment_status = paymentStatus;
+    
     if (mechanicName && mechanicName.trim()) {
       const mech = await supabaseDb.createMechanic(garageId, mechanicName, client);
-      resolvedMechanicId = mech.id;
+      updatePayload.mechanic_id = mech.id;
+    } else if (mechanicId !== undefined) {
+      updatePayload.mechanic_id = mechanicId || null;
     }
 
-    const { error: jobError } = await client
-      .from('service_jobs')
-      .update({
-        date: date,
-        labour: Number(labour),
-        notes: notes ? notes.trim() : '',
-        payment_status: paymentStatus,
-        mechanic_id: resolvedMechanicId,
-        expected_payment_date: expectedPaymentDate || null,
-        followup_reminder_date: followupReminderDate || null,
-        payment_notes: paymentNotes || null,
-        job_status: jobStatus || 'Waiting',
-        work_requested: workRequested || '',
-        overall_discount: Number(overallDiscount || 0),
-        previous_due_added: Number(previousDueAdded || 0),
-        previous_due_bill_ids: previousDueBillIds || [],
-        overall_discount_type: overallDiscountType || 'FLAT',
-        overall_discount_value: Number(overallDiscountValue || 0),
-        service_notes: serviceNotes || '',
-        show_service_notes: showServiceNotes !== undefined ? showServiceNotes : true
-      })
-      .eq('id', id)
-      .eq('garage_id', garageId);
+    if (expectedPaymentDate !== undefined) updatePayload.expected_payment_date = expectedPaymentDate || null;
+    if (followupReminderDate !== undefined) updatePayload.followup_reminder_date = followupReminderDate || null;
+    if (paymentNotes !== undefined) updatePayload.payment_notes = paymentNotes || null;
+    if (jobStatus !== undefined) updatePayload.job_status = jobStatus || 'Waiting';
+    if (workRequested !== undefined) updatePayload.work_requested = workRequested || '';
+    if (overallDiscount !== undefined) updatePayload.overall_discount = Number(overallDiscount || 0);
+    if (previousDueAdded !== undefined) updatePayload.previous_due_added = Number(previousDueAdded || 0);
+    if (previousDueBillIds !== undefined) updatePayload.previous_due_bill_ids = previousDueBillIds || [];
+    if (overallDiscountType !== undefined) updatePayload.overall_discount_type = overallDiscountType || 'FLAT';
+    if (overallDiscountValue !== undefined) updatePayload.overall_discount_value = Number(overallDiscountValue || 0);
+    if (serviceNotes !== undefined) updatePayload.service_notes = serviceNotes || '';
+    if (showServiceNotes !== undefined) updatePayload.show_service_notes = showServiceNotes;
 
-    if (jobError) throw jobError;
+    if (Object.keys(updatePayload).length > 0) {
+      const { error: jobError } = await client
+        .from('service_jobs')
+        .update(updatePayload)
+        .eq('id', id)
+        .eq('garage_id', garageId);
+
+      if (jobError) throw jobError;
+    }
 
     if (items !== undefined) {
       await client.from('bill_items').delete().eq('job_id', id);

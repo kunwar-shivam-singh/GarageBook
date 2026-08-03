@@ -1,10 +1,11 @@
 'use client';
 
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useSyncExternalStore } from 'react';
 import Link from 'next/link';
 import Navigation from './Navigation';
 import Header from './Header';
 import { Bill, GarageSettings, Mechanic, PartSuggestion, ServiceSuggestion, Payment } from '@/lib/db/types';
+import { jobStore } from '@/lib/store';
 import { 
   Plus, Search, Wrench, Package, Briefcase, CreditCard, 
   Calendar, Bell, Database, Shield, HelpCircle, Info, 
@@ -29,7 +30,30 @@ interface DashboardClientProps {
 }
 
 export default function DashboardClient({ initialBills, settings }: DashboardClientProps) {
-  const [bills, setBills] = useState<Bill[]>(initialBills);
+  // Use global state as source of truth
+  useEffect(() => {
+    jobStore.setMultiple(initialBills as any);
+  }, [initialBills]);
+
+  const allJobs = useSyncExternalStore(
+    jobStore.subscribe,
+    jobStore.getAll.bind(jobStore),
+    () => initialBills as any
+  );
+
+  const bills = useMemo(() => {
+    const ids = new Set(initialBills.map(j => j.id));
+    return allJobs.filter((j: any) => ids.has(j.id)) as Bill[];
+  }, [allJobs, initialBills]);
+
+  const setBills = (newBills: Bill[] | ((prev: Bill[]) => Bill[])) => {
+    if (typeof newBills === 'function') {
+      const updated = newBills(bills);
+      jobStore.setMultiple(updated as any);
+    } else {
+      jobStore.setMultiple(newBills as any);
+    }
+  };
   const [priorities, setPriorities] = useState<Record<string, string>>({});
   const [dashboardFilter, setDashboardFilter] = useState<'All' | 'Today' | 'Waiting' | 'Working' | 'Completed' | 'PendingDelivery' | 'PendingPayment'>('All');
 

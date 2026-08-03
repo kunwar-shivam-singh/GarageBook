@@ -1,10 +1,11 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useSyncExternalStore } from 'react';
 import { useRouter } from 'next/navigation';
 import Navigation from '../../components/Navigation';
 import Header from '../../components/Header';
 import { Bill, GarageSettings, Mechanic, PartSuggestion, ServiceSuggestion, BillItem, Service } from '@/lib/db/types';
+import { jobStore } from '@/lib/store';
 import { 
   Play, Pause, CheckCircle, Clock, Plus, Trash2, Edit2, Check, X,
   AlertTriangle, CreditCard, ChevronRight, User, Bike, MessageSquare, Save, Share2, Printer, Wrench
@@ -27,14 +28,30 @@ interface JobCardClientProps {
 
 export default function JobCardClient({ bill: initialBill, settings }: JobCardClientProps) {
   const router = useRouter();
-  const [bill, setBill] = useState<Bill>(initialBill);
+  
+  // Use global state as source of truth
+  useEffect(() => {
+    jobStore.set(initialBill as any);
+  }, [initialBill]);
+
+  const bill: Bill = useSyncExternalStore(
+    jobStore.subscribe,
+    () => jobStore.get(initialBill.id) || initialBill,
+    () => initialBill
+  ) as Bill;
+
+  const setBill = (updatedBill: Bill | ((prev: Bill) => Bill)) => {
+    if (typeof updatedBill === 'function') {
+      const newBill = updatedBill(bill);
+      jobStore.set(newBill as any);
+    } else {
+      jobStore.set(updatedBill as any);
+    }
+  };
+
   const [currentTime, setCurrentTime] = useState<number>(Date.now());
   const [saving, setSaving] = useState(false);
 
-  // Sync state if server revalidates and passes new props
-  useEffect(() => {
-    setBill(initialBill);
-  }, [initialBill]);
 
   // Suggestions and Mechanics database stores
   const [partSuggestions, setPartSuggestions] = useState<PartSuggestion[]>([]);
