@@ -140,6 +140,7 @@ begin
   end if;
 end;
 $$;
--- Add table to publication
+-- Add tables to publication
 alter publication supabase_realtime add table public.service_jobs;
+alter publication supabase_realtime add table public.bills;
 

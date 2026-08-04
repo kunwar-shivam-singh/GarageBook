@@ -70,9 +70,8 @@ export default function Navigation({ garageName }: NavigationProps) {
     }
 
     // 2. Cross-device true real-time sync via Supabase
-    const channel = supabase.channel('public:service_jobs')
+    const channel = supabase.channel('public:realtime_sync')
       .on('postgres_changes', { event: '*', schema: 'public', table: 'service_jobs' }, async (payload) => {
-        // Debounce or just fetch immediately
         if (payload.eventType === 'INSERT' || payload.eventType === 'UPDATE') {
           const jobId = payload.new.id;
           try {
@@ -82,6 +81,21 @@ export default function Navigation({ garageName }: NavigationProps) {
             }
           } catch (e) {
             console.error('Failed to sync realtime job:', e);
+          }
+        } else if (payload.eventType === 'DELETE') {
+          jobStore.remove(payload.old.id);
+        }
+      })
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'bills' }, async (payload) => {
+        if (payload.eventType === 'INSERT' || payload.eventType === 'UPDATE') {
+          const billId = payload.new.id;
+          try {
+            const updatedBill = await getBillById(billId);
+            if (updatedBill) {
+              jobStore.set(updatedBill as any);
+            }
+          } catch (e) {
+            console.error('Failed to sync realtime bill:', e);
           }
         } else if (payload.eventType === 'DELETE') {
           jobStore.remove(payload.old.id);

@@ -1499,36 +1499,42 @@ export const supabaseDb = {
       resolvedMechanicId = mech.id;
     }
 
-    // 2. Update Bill Details
-    const { data: billData, error: billError } = await client
-      .from('bills')
-      .update({
-        date: date,
-        labour: Number(labour),
-        notes: notes?.trim() || '',
-        payment_status: paymentStatus,
-        mechanic_id: resolvedMechanicId,
-        expected_payment_date: expectedPaymentDate || null,
-        followup_reminder_date: followupReminderDate || null,
-        payment_notes: paymentNotes || null,
-        // v2.0 parameters
-        job_status: jobStatus || 'Waiting',
-        work_requested: workRequested || '',
-        overall_discount: Number(overallDiscount || 0),
-        previous_due_added: Number(previousDueAdded || 0),
-        previous_due_bill_ids: previousDueBillIds || [],
-        overall_discount_type: overallDiscountType || 'FLAT',
-        overall_discount_value: Number(overallDiscountValue || 0),
-        service_notes: serviceNotes || '',
-        show_service_notes: showServiceNotes !== undefined ? showServiceNotes : true,
-        updated_at: new Date().toISOString(),
-      })
-      .eq('id', id)
-      .eq('garage_id', garageId)
-      .select()
-      .single();
+    const updatePayload: any = {};
+    if (date !== undefined) updatePayload.date = date;
+    if (labour !== undefined) updatePayload.labour = Number(labour) || 0;
+    if (notes !== undefined) updatePayload.notes = notes ? notes.trim() : '';
+    if (paymentStatus !== undefined) updatePayload.payment_status = paymentStatus;
+    
+    if (mechanicName && mechanicName.trim()) {
+      const mech = await supabaseDb.createMechanic(garageId, mechanicName, client);
+      updatePayload.mechanic_id = mech.id;
+    } else if (mechanicId !== undefined) {
+      updatePayload.mechanic_id = mechanicId || null;
+    }
 
-    if (billError) throw billError;
+    if (expectedPaymentDate !== undefined) updatePayload.expected_payment_date = expectedPaymentDate || null;
+    if (followupReminderDate !== undefined) updatePayload.followup_reminder_date = followupReminderDate || null;
+    if (paymentNotes !== undefined) updatePayload.payment_notes = paymentNotes || null;
+    if (jobStatus !== undefined) updatePayload.job_status = jobStatus;
+    if (workRequested !== undefined) updatePayload.work_requested = workRequested || '';
+    if (overallDiscount !== undefined) updatePayload.overall_discount = Number(overallDiscount || 0);
+    if (previousDueAdded !== undefined) updatePayload.previous_due_added = Number(previousDueAdded || 0);
+    if (previousDueBillIds !== undefined) updatePayload.previous_due_bill_ids = previousDueBillIds || [];
+    if (overallDiscountType !== undefined) updatePayload.overall_discount_type = overallDiscountType || 'FLAT';
+    if (overallDiscountValue !== undefined) updatePayload.overall_discount_value = Number(overallDiscountValue || 0);
+    if (serviceNotes !== undefined) updatePayload.service_notes = serviceNotes || '';
+    if (showServiceNotes !== undefined) updatePayload.show_service_notes = showServiceNotes;
+    updatePayload.updated_at = new Date().toISOString();
+
+    if (Object.keys(updatePayload).length > 0) {
+      const { error: billError } = await client
+        .from('bills')
+        .update(updatePayload)
+        .eq('id', id)
+        .eq('garage_id', garageId);
+
+      if (billError) throw billError;
+    }
 
     // 3. Clear & re-insert items ONLY if items array is explicitly passed
     if (items !== undefined) {
@@ -2239,7 +2245,7 @@ export const supabaseDb = {
 
     const lastInvoiceNumber = billsCount.length > 0 
       ? Math.max(...billsCount.map((b: any) => {
-          const match = b.invoice_number.match(/GB-(\d+)/);
+          const match = b.invoice_number?.match(/GB-(\d+)/);
           return match ? parseInt(match[1]) : 1000;
         }))
       : 1000;

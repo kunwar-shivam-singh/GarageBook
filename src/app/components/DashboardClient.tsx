@@ -437,7 +437,10 @@ export default function DashboardClient({ initialBills, settings }: DashboardCli
     e.preventDefault();
     if (!showClearanceModal) return;
     const { bill } = showClearanceModal;
+    const previousBills = [...bills];
     try {
+      setUpdatingId(bill.id);
+      setBills(prev => prev.map(b => b.id === bill.id ? { ...b, jobStatus: 'Delivered', expectedPaymentDate: deliveryClearanceDate } : b));
       await recalculateAndSave(bill, { 
         jobStatus: 'Delivered', 
         expectedPaymentDate: deliveryClearanceDate 
@@ -446,6 +449,10 @@ export default function DashboardClient({ initialBills, settings }: DashboardCli
       setDeliveryClearanceDate('');
     } catch (err) {
       console.error(err);
+      setBills(previousBills);
+      toast.error('Failed to deliver vehicle.');
+    } finally {
+      setUpdatingId(null);
     }
   };
 
