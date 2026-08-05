@@ -83,7 +83,17 @@ export default function Navigation({ garageName }: NavigationProps) {
             console.error('Failed to sync realtime job:', e);
           }
         } else if (payload.eventType === 'DELETE') {
-          jobStore.remove(payload.old.id);
+          const id = payload.old.id;
+          try {
+            const current = await getBillById(id);
+            if (!current) {
+              jobStore.remove(id);
+            } else {
+              jobStore.set(current as any);
+            }
+          } catch (e) {
+            jobStore.remove(id);
+          }
         }
       })
       .on('postgres_changes', { event: '*', schema: 'public', table: 'bills' }, async (payload) => {
@@ -98,7 +108,17 @@ export default function Navigation({ garageName }: NavigationProps) {
             console.error('Failed to sync realtime bill:', e);
           }
         } else if (payload.eventType === 'DELETE') {
-          jobStore.remove(payload.old.id);
+          const id = payload.old.id;
+          try {
+            const current = await getBillById(id);
+            if (!current) {
+              jobStore.remove(id);
+            } else {
+              jobStore.set(current as any);
+            }
+          } catch (e) {
+            jobStore.remove(id);
+          }
         }
       })
       .subscribe();

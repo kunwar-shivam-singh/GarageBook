@@ -33,9 +33,11 @@ export default function QueueClient({ initialQueue, initialMechanics, garageName
   );
 
   const queue = useMemo(() => {
-    const ids = new Set(initialQueue.map(j => j.id));
-    return allJobs.filter((j: any) => ids.has(j.id)) as Bill[];
-  }, [allJobs, initialQueue]);
+    return allJobs.filter((j: any) => 
+      !['Delivered', 'Cancelled', 'Archived'].includes(j.jobStatus) &&
+      !j.invoiceNumber
+    ) as Bill[];
+  }, [allJobs]);
 
   const setQueue = (newQueue: Bill[] | ((prev: Bill[]) => Bill[])) => {
     if (typeof newQueue === 'function') {

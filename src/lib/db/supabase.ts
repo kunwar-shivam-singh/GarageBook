@@ -499,7 +499,6 @@ export const supabaseDb = {
       .eq('bill_id', billId)
       .eq('garage_id', garageId)
       .order('payment_date', { ascending: true });
-
     if (error) throw error;
     return (data || []).map(mapPayment);
   },
@@ -1476,8 +1475,19 @@ export const supabaseDb = {
 
     if (jobCheck) {
       if (input.jobStatus === 'Delivered') {
-        await supabaseDb.updateServiceJob(garageId, id, input, client);
-        return await supabaseDb.generateBillFromJob(garageId, id, client);
+        try {
+          await supabaseDb.updateServiceJob(garageId, id, input, client);
+        } catch (e: any) {
+          console.error('[updateBill] FAILED updateServiceJob:', e);
+          throw Object.assign(new Error(`[updateServiceJob] ${e.message || e.details || 'Unknown'}`), e);
+        }
+        
+        try {
+          return await supabaseDb.generateBillFromJob(garageId, id, client);
+        } catch (e: any) {
+          console.error('[updateBill] FAILED generateBillFromJob:', e);
+          throw Object.assign(new Error(`[generateBillFromJob] ${e.message || e.details || 'Unknown'}`), e);
+        }
       } else {
         return await supabaseDb.updateServiceJob(garageId, id, input, client) as unknown as Bill;
       }
@@ -2251,59 +2261,15 @@ export const supabaseDb = {
       : 1000;
     const invoiceNumber = `GB-${lastInvoiceNumber + 1}`;
 
-    const { data: billData, error: billError } = await client
-      .from('bills')
-      .insert({
-        garage_id: garageId,
-        vehicle_id: job.vehicle_id,
-        customer_id: job.customer_id,
-        invoice_number: invoiceNumber,
-        date: new Date().toISOString(),
-        labour: Number(job.labour),
-        total: Number(job.total),
-        notes: job.notes,
-        payment_status: job.payment_status,
-        mechanic_id: job.mechanic_id,
-        received_amount: Number(job.received_amount),
-        remaining_amount: Number(job.remaining_amount),
-        expected_payment_date: job.expected_payment_date,
-        followup_reminder_date: job.followup_reminder_date,
-        payment_notes: job.payment_notes,
-        job_status: 'Delivered',
-        work_requested: job.work_requested,
-        job_start_time: job.job_start_time,
-        job_end_time: job.job_end_time || new Date().toISOString(),
-        total_working_time: Number(job.total_working_time),
-        pause_duration: Number(job.pause_duration),
-        actual_working_duration: Number(job.actual_working_duration),
-        timer_state: 'COMPLETED',
-        last_timer_action_at: new Date().toISOString(),
-        parts_total: Number(job.parts_total),
-        parts_discount: Number(job.parts_discount),
-        labour_total: Number(job.labour_total),
-        labour_discount: Number(job.labour_discount),
-        overall_discount: Number(job.overall_discount),
-        advance_received: Number(job.advance_received),
-        previous_due_added: Number(job.previous_due_added),
-        previous_due_bill_ids: job.previous_due_bill_ids,
-        overall_discount_type: job.overall_discount_type,
-        overall_discount_value: Number(job.overall_discount_value),
-        service_notes: job.service_notes,
-        show_service_notes: job.show_service_notes
-      })
-      .select()
-      .single();
+    const { data: billData, error: rpcError } = await client.rpc('deliver_vehicle_atomic', {
+      p_job_id: jobId,
+      p_invoice_number: invoiceNumber
+    });
 
-    if (billError) throw billError;
-
-    await client.from('bill_items').update({ bill_id: billData.id, job_id: null }).eq('job_id', jobId);
-    await client.from('services').update({ bill_id: billData.id, job_id: null }).eq('job_id', jobId);
-    await client.from('payments').update({ bill_id: billData.id, job_id: null }).eq('job_id', jobId);
-    await client.from('advances').update({ bill_id: billData.id, job_id: null }).eq('job_id', jobId);
-    await client.from('job_timers').update({ bill_id: billData.id, job_id: null }).eq('job_id', jobId);
-    await client.from('followups').update({ bill_id: billData.id, job_id: null }).eq('job_id', jobId);
-
-    await client.from('service_jobs').delete().eq('id', jobId);
+    if (rpcError) {
+      console.error('[generateBillFromJob] FAILED atomic delivery:', rpcError);
+      throw Object.assign(new Error(`[deliver_vehicle_atomic] ${rpcError.message || rpcError.details || 'Unknown'}`), rpcError);
+    }
 
     const freshBill = await supabaseDb.getBillById(garageId, billData.id, client);
     return freshBill!;

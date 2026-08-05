@@ -514,21 +514,23 @@ export default function JobCardClient({ bill: initialBill, settings }: JobCardCl
     try {
       setSaving(true);
       
-      // 1. Record payment transaction if amount > 0
-      if (amount > 0) {
+      // 1. Set status to Delivered and expected payment date (converts service_job to bill)
+      const saved = await saveBillUpdates({
+        jobStatus: 'Delivered',
+        expectedPaymentDate: expectedClearanceDate || null
+      });
+
+      const targetBillId = saved?.id || bill.id;
+
+      // 2. Record payment transaction against the generated bill
+      if (amount > 0 && targetBillId) {
         await addPaymentToBill(
-          bill.id,
+          targetBillId,
           paymentMode,
           amount,
           paymentNotes || 'Final delivery payment'
         );
       }
-
-      // 2. Set status to Delivered and expected payment date
-      const saved = await saveBillUpdates({
-        jobStatus: 'Delivered',
-        expectedPaymentDate: expectedClearanceDate || null
-      });
 
       toast.success('Invoice finalized and vehicle delivered!');
       if (typeof window !== 'undefined') {
@@ -539,9 +541,11 @@ export default function JobCardClient({ bill: initialBill, settings }: JobCardCl
       } else {
         router.refresh();
       }
-    } catch (err) {
-      console.error(err);
-      toast.error('Failed to deliver vehicle.');
+    } catch (err: any) {
+      console.error('DELIVER EXCEPTION:', err);
+      const msg = err?.message || err?.details || err?.hint || 'Unknown error occurred.';
+      const code = err?.code || 'NO_CODE';
+      toast.error(`Failed to deliver vehicle. [${code}] ${msg}`);
     } finally {
       setSaving(false);
     }

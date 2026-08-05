@@ -1,5 +1,5 @@
--- Migration: 20260803000002_fix_service_job_triggers.sql
--- Description: Restores PostgreSQL triggers to automatically calculate parts, labour, advances, and totals for service_jobs.
+-- Ensure updated_at exists on service_jobs
+alter table public.service_jobs add column if not exists updated_at timestamp with time zone default timezone('utc'::text, now());
 
 -- 1. Create the recalculation function for service_jobs
 create or replace function public.recalculate_service_job_totals()
@@ -84,8 +84,7 @@ begin
     received_amount = total_payments + total_advances,
     overall_discount = overall_disc_amount,
     total = parts_net + labour_net - overall_disc_amount + coalesce(target_job.previous_due_added, 0),
-    remaining_amount = (parts_net + labour_net - overall_disc_amount + coalesce(target_job.previous_due_added, 0)) - (total_payments + total_advances),
-    updated_at = timezone('utc'::text, now())
+    remaining_amount = (parts_net + labour_net - overall_disc_amount + coalesce(target_job.previous_due_added, 0)) - (total_payments + total_advances)
   where id = job_id_val;
 
   -- Note: We do not update payment_status here as it is managed by the application logic

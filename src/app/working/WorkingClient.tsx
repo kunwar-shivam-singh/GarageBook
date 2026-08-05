@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useSyncExternalStore } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { toast } from 'sonner';
@@ -13,6 +13,7 @@ import {
 import Navigation from '../components/Navigation';
 import Header from '../components/Header';
 import { Bill, Mechanic, PartSuggestion, ServiceSuggestion } from '@/lib/db/types';
+import { jobStore } from '@/lib/store';
 import { 
   updateBill, 
   logTimerAction,
@@ -63,12 +64,29 @@ const JobStopwatch = ({ bill }: { bill: Bill }) => {
 
 export default function WorkingClient({ initialJobs, settings, mechanics }: WorkingClientProps) {
   const router = useRouter();
-  const [jobs, setJobs] = useState<Bill[]>(() => 
-    initialJobs.filter(j => 
+  const allJobs = useSyncExternalStore(
+    jobStore.subscribe,
+    jobStore.getAll,
+    jobStore.getAll
+  );
+
+  const jobs = useMemo(() => {
+    const ids = new Set(initialJobs.map(j => j.id));
+    return allJobs.filter((j: any) => 
+      ids.has(j.id) && 
       !j.invoiceNumber && 
       ((j.jobStatus as string) === 'Working' || (j.jobStatus as string) === 'Assigned' || j.timerState === 'RUNNING' || j.timerState === 'PAUSED')
-    )
-  );
+    ) as Bill[];
+  }, [allJobs, initialJobs]);
+
+  const setJobs = (newJobs: Bill[] | ((prev: Bill[]) => Bill[])) => {
+    if (typeof newJobs === 'function') {
+      const updated = newJobs(jobs);
+      jobStore.setMultiple(updated as any);
+    } else {
+      jobStore.setMultiple(newJobs as any);
+    }
+  };
 
   // Modals state
   const [activePartJob, setActivePartJob] = useState<Bill | null>(null);

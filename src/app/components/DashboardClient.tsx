@@ -42,9 +42,8 @@ export default function DashboardClient({ initialBills, settings }: DashboardCli
   );
 
   const bills = useMemo(() => {
-    const ids = new Set(initialBills.map(j => j.id));
-    return allJobs.filter((j: any) => ids.has(j.id)) as Bill[];
-  }, [allJobs, initialBills]);
+    return allJobs as Bill[];
+  }, [allJobs]);
 
   const setBills = (newBills: Bill[] | ((prev: Bill[]) => Bill[])) => {
     if (typeof newBills === 'function') {
@@ -243,7 +242,7 @@ export default function DashboardClient({ initialBills, settings }: DashboardCli
     const pendingPaymentsCount = pendingPaymentsList.length;
 
     // Open Jobs (all active service cards in workshop without invoice number)
-    const openJobsList = bills.filter(b => !b.invoiceNumber && (b.jobStatus as string) !== 'Cancelled');
+    const openJobsList = bills.filter(b => !b.invoiceNumber && !['Delivered', 'Cancelled', 'Archived'].includes(b.jobStatus as string));
 
     return {
       todayVehiclesList,
@@ -447,10 +446,12 @@ export default function DashboardClient({ initialBills, settings }: DashboardCli
       });
       setShowClearanceModal(null);
       setDeliveryClearanceDate('');
-    } catch (err) {
-      console.error(err);
+    } catch (err: any) {
+      console.error('DASHBOARD DELIVER EXCEPTION:', err);
+      const msg = err?.message || err?.details || err?.hint || 'Unknown error occurred.';
+      const code = err?.code || 'NO_CODE';
       setBills(previousBills);
-      toast.error('Failed to deliver vehicle.');
+      toast.error(`Failed to deliver vehicle. [${code}] ${msg}`);
     } finally {
       setUpdatingId(null);
     }
