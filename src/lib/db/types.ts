@@ -343,11 +343,11 @@ export interface UpdateBillInput {
   vehicleNumber?: string;
   vehicleBrand?: string;
   vehicleModel?: string;
-  date: string;
-  labour: number;
-  notes: string;
-  paymentStatus: 'PAID' | 'PARTIAL' | 'PENDING';
-  items: {
+  date?: string;
+  labour?: number;
+  notes?: string;
+  paymentStatus?: 'PAID' | 'PARTIAL' | 'PENDING';
+  items?: {
     name: string;
     quantity: number;
     unitPrice: number;
@@ -369,7 +369,7 @@ export interface UpdateBillInput {
   // v2.0 inputs
   jobStatus?: 'Waiting' | 'Assigned' | 'Working' | 'Ready for Delivery' | 'Delivered' | 'Cancelled' | 'Work Started' | 'Waiting for Parts' | 'Completed';
   workRequested?: string;
-  services: {
+  services?: {
     name: string;
     mechanicId?: string | null;
     mechanicName?: string | null;

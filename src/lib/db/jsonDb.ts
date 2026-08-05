@@ -1639,7 +1639,7 @@ export const jsonDb = {
 
     // 1. Insert Parts
     const items: BillItem[] = [];
-    inputItems.forEach((item) => {
+    (inputItems || []).forEach((item) => {
       const newItem: BillItem = {
         id: `item_${generateUuid()}`,
         billId: id,
@@ -1762,10 +1762,10 @@ export const jsonDb = {
     // Update fields
     const updatedBill: Bill = {
       ...oldBill,
-      date: date,
-      labour: Number(labour),
-      notes: notes?.trim() || '',
-      paymentStatus: paymentStatus,
+      date: date || oldBill.date,
+      labour: labour !== undefined ? Number(labour) : oldBill.labour,
+      notes: notes !== undefined ? notes.trim() : oldBill.notes,
+      paymentStatus: paymentStatus || oldBill.paymentStatus || 'PENDING',
       mechanicId: resolvedMechanicId,
       expectedPaymentDate: expectedPaymentDate || null,
       followupReminderDate: followupReminderDate || null,

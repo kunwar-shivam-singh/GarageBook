@@ -11,6 +11,9 @@ import {
   getVehicleSuggestions,
   getComplaintSuggestions,
   getCustomerPhoneByVehicleNumber,
+  getCustomerByPhone,
+  getVehiclesByCustomer,
+  searchUniversal,
   learnComplaintSuggestion,
   learnVehicleSuggestion
 } from '../../actions';
@@ -19,6 +22,10 @@ import {
   Plus, Trash2, CheckCircle2, UserCheck, AlertTriangle, Search, FileText, Eye
 } from 'lucide-react';
 import { toast } from 'sonner';
+import { INDIAN_VEHICLE_DATABASE } from '@/lib/constants/vehicles';
+import { isValidIndianRegistration, normalizeVehicleNumber } from '@/lib/utils/vehicleValidation';
+import SelectVehicleModal from '../../components/SelectVehicleModal';
+import { Vehicle } from '@/lib/db/types';
 
 interface NewEntryClientProps {
   garageName: string;
@@ -80,6 +87,9 @@ export default function NewEntryClient({ garageName }: NewEntryClientProps) {
   const [advanceAmount, setAdvanceAmount] = useState('');
   const [paymentMode, setPaymentMode] = useState<'CASH' | 'UPI' | 'CARD' | 'BANK_TRANSFER' | 'OTHER'>('UPI');
 
+  // Multi-vehicle modal state
+  const [multiVehicleCustomer, setMultiVehicleCustomer] = useState<{ name: string; vehicles: Vehicle[] } | null>(null);
+
   // Load brand/model & complaint suggestion presets
   useEffect(() => {
     async function loadSuggestions() {
@@ -96,29 +106,57 @@ export default function NewEntryClient({ garageName }: NewEntryClientProps) {
     loadSuggestions();
   }, []);
 
-  // Trigger dues check when phone number reaches 10 digits
+  // Trigger dues & customer vehicle lookup when phone number reaches 10 digits
   useEffect(() => {
-    if (phone.length === 10) {
-      checkPreviousDuesByPhone(phone);
-    } else {
-      setPrevBillAlert(null);
-      setMergeBillIds([]);
-      setMergeBillAmount(0);
+    async function handlePhoneLookup() {
+      if (phone.length === 10) {
+        checkPreviousDuesByPhone(phone);
+        try {
+          const cust = await getCustomerByPhone(phone);
+          if (cust) {
+            if (!name) setName(cust.name);
+            const vehs = await getVehiclesByCustomer(cust.id);
+            if (vehs && vehs.length === 1) {
+              setVehicleNumber(vehs[0].vehicleNumber);
+              setBrand(vehs[0].brand);
+              setModel(vehs[0].model);
+            } else if (vehs && vehs.length > 1) {
+              setMultiVehicleCustomer({ name: cust.name, vehicles: vehs });
+            }
+          }
+        } catch (err) {
+          console.error("Failed customer phone lookup:", err);
+        }
+      } else {
+        setPrevBillAlert(null);
+        setMergeBillIds([]);
+        setMergeBillAmount(0);
+      }
     }
+    handlePhoneLookup();
   }, [phone]);
 
-  // Trigger dues check when vehicle registration is typed & blurred (e.g. at least 6 chars)
+  // Trigger auto-fill when vehicle registration is typed & blurred (e.g. at least 6 chars)
   const handleVehicleBlur = async () => {
-    const cleanVeh = vehicleNumber.replace(/\s+/g, '').replace(/-+/g, '').toUpperCase();
+    const cleanVeh = normalizeVehicleNumber(vehicleNumber);
     if (cleanVeh.length >= 6) {
       try {
-        const matchedPhone = await getCustomerPhoneByVehicleNumber(cleanVeh);
-        if (matchedPhone) {
-          if (!phone) setPhone(matchedPhone); // auto-fill phone
-          checkPreviousDuesByPhone(matchedPhone);
+        const results = await searchUniversal(cleanVeh);
+        if (results && results.length > 0) {
+          for (const r of results) {
+            const matchedVeh = r.vehicles.find((v: any) => normalizeVehicleNumber(v.vehicleNumber) === cleanVeh);
+            if (matchedVeh) {
+              if (!phone) setPhone(r.customer.phone);
+              if (!name) setName(r.customer.name);
+              setBrand(matchedVeh.brand);
+              setModel(matchedVeh.model);
+              checkPreviousDuesByPhone(r.customer.phone);
+              break;
+            }
+          }
         }
       } catch (err) {
-        console.error(err);
+        console.error("Failed vehicle lookup:", err);
       }
     }
   };
@@ -140,11 +178,29 @@ export default function NewEntryClient({ garageName }: NewEntryClientProps) {
     }
   };
 
-  const distinctBrands = Array.from(new Set(vehicleSuggestionsList.map(v => v.brand))).filter(Boolean);
-  const filteredModels = vehicleSuggestionsList
-    .filter(v => !brand || v.brand.toLowerCase() === brand.toLowerCase())
-    .map(v => v.model)
-    .filter((value, index, self) => self.indexOf(value) === index);
+  const combinedVehicleSuggestions = React.useMemo(() => {
+    const dbList = INDIAN_VEHICLE_DATABASE;
+    const userList = vehicleSuggestionsList;
+    const map = new Map<string, { brand: string; model: string }>();
+    dbList.forEach(item => map.set(`${item.brand.toLowerCase()}::${item.model.toLowerCase()}`, item));
+    userList.forEach(item => {
+      if (item.brand && item.model) {
+        map.set(`${item.brand.toLowerCase()}::${item.model.toLowerCase()}`, { brand: item.brand, model: item.model });
+      }
+    });
+    return Array.from(map.values());
+  }, [vehicleSuggestionsList]);
+
+  const distinctBrands = React.useMemo(() => {
+    return Array.from(new Set(combinedVehicleSuggestions.map(v => v.brand))).filter(Boolean);
+  }, [combinedVehicleSuggestions]);
+
+  const filteredModels = React.useMemo(() => {
+    return combinedVehicleSuggestions
+      .filter(v => !brand || v.brand.toLowerCase() === brand.toLowerCase())
+      .map(v => v.model)
+      .filter((value, index, self) => self.indexOf(value) === index);
+  }, [combinedVehicleSuggestions, brand]);
 
   // Input validation routines
   const validateStep1 = () => {
@@ -157,11 +213,10 @@ export default function NewEntryClient({ garageName }: NewEntryClientProps) {
       toast.error("Customer name must be at least 3 characters.");
       return false;
     }
-    // Indian Registration regex MH12AB1234, DL3C1234
-    const cleanVeh = vehicleNumber.replace(/\s+/g, '').replace(/-+/g, '').toUpperCase();
-    const indRegex = /^[A-Z]{2}[0-9]{1,2}[A-Z]{1,3}[0-9]{4}$|^[A-Z]{2}[0-9]{6,8}$/;
-    if (!indRegex.test(cleanVeh)) {
-      toast.error("Invalid Indian registration number format (e.g. MH12AB1234).");
+    // Indian Registration regex MH12AB1234, DL3C1234, 26BH1234AB
+    const cleanVeh = normalizeVehicleNumber(vehicleNumber);
+    if (!isValidIndianRegistration(cleanVeh)) {
+      toast.error("Invalid Indian registration number format (e.g. MH12AB1234 or 26BH1234AB).");
       return false;
     }
     if (!brand.trim()) {
@@ -826,6 +881,27 @@ export default function NewEntryClient({ garageName }: NewEntryClientProps) {
         </div>
       )}
 
+      {/* MULTI-VEHICLE SELECTION MODAL */}
+      {multiVehicleCustomer && (
+        <SelectVehicleModal
+          isOpen={Boolean(multiVehicleCustomer)}
+          onClose={() => setMultiVehicleCustomer(null)}
+          customerName={multiVehicleCustomer.name}
+          vehicles={multiVehicleCustomer.vehicles}
+          onSelectVehicle={(v) => {
+            setVehicleNumber(v.vehicleNumber);
+            setBrand(v.brand);
+            setModel(v.model);
+            setMultiVehicleCustomer(null);
+          }}
+          onAddNewVehicle={() => {
+            setVehicleNumber('');
+            setBrand('');
+            setModel('');
+            setMultiVehicleCustomer(null);
+          }}
+        />
+      )}
     </div>
   );
 }

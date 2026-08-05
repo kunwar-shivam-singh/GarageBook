@@ -4,14 +4,16 @@ import React, { useState, useEffect, useMemo, useSyncExternalStore } from 'react
 import { useRouter } from 'next/navigation';
 import { 
   Play, Pause, CheckCircle, User, Phone, Clock, 
-  Search, ShieldAlert, ExternalLink, ChevronRight, Wrench, DollarSign, Calendar
+  Search, ShieldAlert, ExternalLink, ChevronRight, Wrench, DollarSign, Calendar, Trash2, XCircle
 } from 'lucide-react';
 import Navigation from '../components/Navigation';
 import Header from '../components/Header';
 import { Bill, Mechanic } from '@/lib/db/types';
 import { logTimerAction, updateBill } from '@/app/actions';
 import LabourPromptModal from '../components/LabourPromptModal';
+import DiscardConfirmModal from '../components/DiscardConfirmModal';
 import { jobStore } from '@/lib/store';
+import { toast } from 'sonner';
 
 interface QueueClientProps {
   initialQueue: Bill[];
@@ -54,6 +56,27 @@ export default function QueueClient({ initialQueue, initialMechanics, garageName
   const [currentTime, setCurrentTime] = useState<number>(Date.now());
   const [updatingId, setUpdatingId] = useState<string | null>(null);
   const [showLabourPromptJob, setShowLabourPromptJob] = useState<Bill | null>(null);
+  const [discardJob, setDiscardJob] = useState<Bill | null>(null);
+
+  const handleDiscardConfirm = async (reason: string) => {
+    if (!discardJob) return;
+    try {
+      setUpdatingId(discardJob.id);
+      const updatedNotes = discardJob.notes ? `${discardJob.notes} | Discarded: ${reason}` : `Discarded: ${reason}`;
+      await updateBill(discardJob.id, {
+        jobStatus: 'Cancelled',
+        notes: updatedNotes
+      });
+      jobStore.set({ ...discardJob, jobStatus: 'Cancelled', notes: updatedNotes } as any);
+      toast.success('Vehicle discarded from active queue.');
+    } catch (err) {
+      console.error('Failed to discard job:', err);
+      toast.error('Failed to discard vehicle from queue.');
+    } finally {
+      setUpdatingId(null);
+      setDiscardJob(null);
+    }
+  };
 
   // Force re-render of active timers every second
   useEffect(() => {
@@ -559,6 +582,17 @@ export default function QueueClient({ initialQueue, initialMechanics, garageName
                               <span>Complete Work</span>
                             </button>
                           )}
+
+                          <button
+                            type="button"
+                            disabled={isUpdating}
+                            onClick={() => setDiscardJob(bill)}
+                            className="flex items-center gap-1 px-2.5 py-2 rounded-xl text-xs font-bold text-red-600 hover:bg-red-50 border border-transparent hover:border-red-200 transition-colors"
+                            title="Discard vehicle from queue without creating bill"
+                          >
+                            <Trash2 className="h-3.5 w-3.5" />
+                            <span>Discard</span>
+                          </button>
                         </div>
 
                         <div>
@@ -671,6 +705,18 @@ export default function QueueClient({ initialQueue, initialMechanics, garageName
                           {updatingId === bill.id ? 'Processing...' : (bill.jobStatus === 'Completed' || bill.jobStatus === 'Delivered' ? '✓ Completed' : 'Complete Job')}
                         </button>
                       </div>
+
+                      <div className="pt-2 border-t border-slate-100 flex justify-end">
+                        <button
+                          type="button"
+                          disabled={isUpdating}
+                          onClick={() => setDiscardJob(bill)}
+                          className="text-xs font-bold text-red-600 hover:text-red-700 flex items-center gap-1 py-1 px-2 rounded hover:bg-red-50"
+                        >
+                          <Trash2 className="h-3.5 w-3.5" />
+                          <span>Discard From Queue</span>
+                        </button>
+                      </div>
                     </div>
                   );
                 })}
@@ -695,6 +741,13 @@ export default function QueueClient({ initialQueue, initialMechanics, garageName
             executeTimerAction(showLabourPromptJob.id, 'COMPLETE');
           }
         }}
+      />
+
+      <DiscardConfirmModal
+        isOpen={Boolean(discardJob)}
+        onClose={() => setDiscardJob(null)}
+        onConfirm={handleDiscardConfirm}
+        vehicleNumber={discardJob?.vehicle?.vehicleNumber}
       />
     </div>
   );

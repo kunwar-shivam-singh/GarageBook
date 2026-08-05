@@ -106,6 +106,13 @@ export default function WorkingClient({ initialJobs, settings, mechanics }: Work
   const [serviceMechId, setServiceMechId] = useState('');
   const [serviceSuggestions, setServiceSuggestions] = useState<ServiceSuggestion[]>([]);
 
+  // Pre-select job's assigned mechanic whenever Add Labour modal opens
+  useEffect(() => {
+    if (activeLabourJob) {
+      setServiceMechId(activeLabourJob.mechanicId || '');
+    }
+  }, [activeLabourJob]);
+
   // Fetch part suggestions when user types
   useEffect(() => {
     const trimmed = partName.trim();

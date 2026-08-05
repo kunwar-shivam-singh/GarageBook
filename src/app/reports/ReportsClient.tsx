@@ -90,8 +90,8 @@ export default function ReportsClient({ bills, settings, imports }: ReportsClien
     const importSales = filteredImports.reduce((sum, m) => sum + m.amount, 0);
     const totalSales = billSales + importSales;
 
-    const billOutstanding = filteredBills.reduce((sum, b) => sum + b.remainingAmount, 0);
-    const importOutstanding = filteredImports.reduce((sum, m) => sum + m.pendingAmount, 0);
+    const billOutstanding = filteredBills.reduce((sum, b) => sum + Math.max(0, Number(b.remainingAmount || 0)), 0);
+    const importOutstanding = filteredImports.reduce((sum, m) => sum + Math.max(0, Number(m.pendingAmount || 0)), 0);
     const totalOutstanding = billOutstanding + importOutstanding;
 
     const paymentsCollections = filteredPayments.reduce((sum, p) => sum + p.amount, 0);

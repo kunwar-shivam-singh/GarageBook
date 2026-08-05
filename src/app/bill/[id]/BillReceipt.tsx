@@ -975,10 +975,10 @@ Status: ${bill.paymentStatus}`;
                     
                     <div className="flex justify-between w-64 text-slate-900 font-black text-lg pt-1 border-t border-slate-100 mt-1">
                       <span>Remaining Amount:</span>
-                      <span className="font-mono text-blue-600 font-black">₹{bill.remainingAmount}</span>
+                      <span className="font-mono text-blue-600 font-black">₹{Math.max(0, Number(bill.remainingAmount || 0))}</span>
                     </div>
 
-                    {bill.remainingAmount > 0 && bill.expectedPaymentDate && (
+                    {Math.max(0, Number(bill.remainingAmount || 0)) > 0 && bill.expectedPaymentDate && (
                       <div className="flex justify-between w-64 text-amber-600 font-bold text-xs py-1">
                         <span>Expected Payment Date:</span>
                         <span>

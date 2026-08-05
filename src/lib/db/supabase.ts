@@ -1246,6 +1246,9 @@ export const supabaseDb = {
     if (mechanicName && mechanicName.trim()) {
       const mech = await supabaseDb.createMechanic(garageId, mechanicName, client);
       resolvedMechanicId = mech.id;
+    } else if (resolvedMechanicId) {
+      const { data: mExists } = await client.from('mechanics').select('id').eq('id', resolvedMechanicId).maybeSingle();
+      if (!mExists) resolvedMechanicId = null;
     }
 
     // 4. Generate Invoice Number (MAX invoice number suffix + 1)
@@ -1335,10 +1338,12 @@ export const supabaseDb = {
             .from('mechanics')
             .select('work_type, commission_rate')
             .eq('id', servMechId)
-            .single();
+            .maybeSingle();
           if (mechData) {
             sWorkType = mechData.work_type;
             sCommRate = Number(mechData.commission_rate || 0);
+          } else {
+            servMechId = null;
           }
         }
         servicesPayload.push({
@@ -1519,7 +1524,12 @@ export const supabaseDb = {
       const mech = await supabaseDb.createMechanic(garageId, mechanicName, client);
       updatePayload.mechanic_id = mech.id;
     } else if (mechanicId !== undefined) {
-      updatePayload.mechanic_id = mechanicId || null;
+      if (mechanicId) {
+        const { data: mExists } = await client.from('mechanics').select('id').eq('id', mechanicId).maybeSingle();
+        updatePayload.mechanic_id = mExists ? mechanicId : null;
+      } else {
+        updatePayload.mechanic_id = null;
+      }
     }
 
     if (expectedPaymentDate !== undefined) updatePayload.expected_payment_date = expectedPaymentDate || null;
@@ -1592,6 +1602,8 @@ export const supabaseDb = {
             if (mechData) {
               sWorkType = mechData.work_type;
               sCommRate = Number(mechData.commission_rate || 0);
+            } else {
+              servMechId = null;
             }
           }
           servicesPayload.push({
@@ -1658,7 +1670,7 @@ export const supabaseDb = {
     }
 
     // 8. Re-save suggestions
-    for (const item of items) {
+    for (const item of (items || [])) {
       try {
         await supabaseDb.addPartSuggestion(garageId, item.name, item.unitPrice ? Number(item.unitPrice) : null, client);
       } catch (err) {
@@ -1954,6 +1966,9 @@ export const supabaseDb = {
     if (mechanicName && mechanicName.trim()) {
       const mech = await supabaseDb.createMechanic(garageId, mechanicName, client);
       resolvedMechanicId = mech.id;
+    } else if (resolvedMechanicId) {
+      const { data: mExists } = await client.from('mechanics').select('id').eq('id', resolvedMechanicId).maybeSingle();
+      if (!mExists) resolvedMechanicId = null;
     }
 
     const { data: jobData, error: jobError } = await client
@@ -2014,8 +2029,12 @@ export const supabaseDb = {
           sMechId = mech.id;
           sWorkType = mech.workType;
         } else if (sMechId) {
-          const { data: mech } = await client.from('mechanics').select('work_type').eq('id', sMechId).single();
-          if (mech) sWorkType = mech.work_type;
+          const { data: mech } = await client.from('mechanics').select('work_type').eq('id', sMechId).maybeSingle();
+          if (mech) {
+            sWorkType = mech.work_type;
+          } else {
+            sMechId = null;
+          }
         }
 
         servicesPayload.push({
@@ -2110,7 +2129,12 @@ export const supabaseDb = {
       const mech = await supabaseDb.createMechanic(garageId, mechanicName, client);
       updatePayload.mechanic_id = mech.id;
     } else if (mechanicId !== undefined) {
-      updatePayload.mechanic_id = mechanicId || null;
+      if (mechanicId) {
+        const { data: mExists } = await client.from('mechanics').select('id').eq('id', mechanicId).maybeSingle();
+        updatePayload.mechanic_id = mExists ? mechanicId : null;
+      } else {
+        updatePayload.mechanic_id = null;
+      }
     }
 
     if (expectedPaymentDate !== undefined) updatePayload.expected_payment_date = expectedPaymentDate || null;
@@ -2178,8 +2202,12 @@ export const supabaseDb = {
           sMechId = mech.id;
           sWorkType = mech.workType;
         } else if (sMechId) {
-          const { data: mech } = await client.from('mechanics').select('work_type').eq('id', sMechId).single();
-          if (mech) sWorkType = mech.work_type;
+          const { data: mech } = await client.from('mechanics').select('work_type').eq('id', sMechId).maybeSingle();
+          if (mech) {
+            sWorkType = mech.work_type;
+          } else {
+            sMechId = null;
+          }
         }
 
         servicesPayload.push({

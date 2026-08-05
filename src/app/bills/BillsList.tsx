@@ -130,9 +130,9 @@ export default function BillsList({ initialBills, garageName }: BillsListProps) 
                           Adv: ₹{bill.advanceReceived}
                         </span>
                       )}
-                      {Number(bill.remainingAmount || 0) > 0 && (
+                      {Math.max(0, Number(bill.remainingAmount || 0)) > 0 && (
                         <span className="text-[10px] font-bold text-red-700 bg-red-50 px-1.5 py-0.5 rounded border border-red-200 mt-0.5">
-                          Due: ₹{bill.remainingAmount}
+                          Due: ₹{Math.max(0, Number(bill.remainingAmount))}
                         </span>
                       )}
                     </div>

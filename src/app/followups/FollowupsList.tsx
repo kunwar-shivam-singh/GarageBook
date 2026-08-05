@@ -62,8 +62,11 @@ Thank you.`;
     toast.success('WhatsApp redirect opened!');
   };
 
-  // Filter bills by search query
+  // Filter bills by search query & ensure remaining amount is > 0 and not PAID
   const filteredBills = bills.filter(b => {
+    if (Math.max(0, Number(b.remainingAmount || 0)) <= 0 || b.paymentStatus === 'PAID') {
+      return false;
+    }
     const q = searchQuery.toLowerCase().trim();
     if (!q) return true;
     return (

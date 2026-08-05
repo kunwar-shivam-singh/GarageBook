@@ -90,6 +90,13 @@ export default function JobCardClient({ bill: initialBill, settings }: JobCardCl
   const [overallDiscountVal, setOverallDiscountVal] = useState(String(initialBill.overallDiscount || 0));
   const [showLabourPromptModal, setShowLabourPromptModal] = useState(false);
 
+  // Pre-select job's assigned mechanic whenever Add Labour modal opens
+  useEffect(() => {
+    if (activeModal === 'add_labour') {
+      setServiceMechId(bill.mechanicId || '');
+    }
+  }, [activeModal, bill.mechanicId]);
+
   // Run timer ticking interval every second
   useEffect(() => {
     const interval = setInterval(() => {
