@@ -25,7 +25,7 @@ export default function QueueClient({ initialQueue, initialMechanics, garageName
   const router = useRouter();
   // Use global state as source of truth
   useEffect(() => {
-    jobStore.setMultiple(initialQueue as any);
+    jobStore.upsertMultiple(initialQueue as any);
   }, [initialQueue]);
 
   const allJobs = useSyncExternalStore(
@@ -41,15 +41,6 @@ export default function QueueClient({ initialQueue, initialMechanics, garageName
     ) as Bill[];
   }, [allJobs]);
 
-  const setQueue = (newQueue: Bill[] | ((prev: Bill[]) => Bill[])) => {
-    if (typeof newQueue === 'function') {
-      const updated = newQueue(queue);
-      jobStore.setMultiple(updated as any);
-    } else {
-      jobStore.setMultiple(newQueue as any);
-    }
-  };
-
   const [mechanics] = useState<Mechanic[]>(initialMechanics);
   const [filterStatus, setFilterStatus] = useState<string>('ALL');
   const [searchQuery, setSearchQuery] = useState<string>('');
@@ -63,11 +54,11 @@ export default function QueueClient({ initialQueue, initialMechanics, garageName
     try {
       setUpdatingId(discardJob.id);
       const updatedNotes = discardJob.notes ? `${discardJob.notes} | Discarded: ${reason}` : `Discarded: ${reason}`;
-      await updateBill(discardJob.id, {
+      const updated = await updateBill(discardJob.id, {
         jobStatus: 'Cancelled',
         notes: updatedNotes
       });
-      jobStore.set({ ...discardJob, jobStatus: 'Cancelled', notes: updatedNotes } as any);
+      jobStore.update(discardJob.id, updated as any);
       toast.success('Vehicle discarded from active queue.');
     } catch (err) {
       console.error('Failed to discard job:', err);
@@ -123,30 +114,33 @@ export default function QueueClient({ initialQueue, initialMechanics, garageName
     try {
       setUpdatingId(billId);
       
+      const bill = queue.find(b => b.id === billId);
+      if (!bill) return;
+
       // Optimistic UI update immediately (0ms delay)
-      setQueue(prev => prev.map(b => {
-        if (b.id !== billId) return b;
-        let nextStatus = b.jobStatus;
-        if (action === 'START' || action === 'RESUME') nextStatus = 'Working';
-        if (action === 'PAUSE') nextStatus = 'Waiting for Parts';
-        if (action === 'COMPLETE') nextStatus = 'Completed';
-        
-        let timerState = b.timerState;
-        if (action === 'START' || action === 'RESUME') timerState = 'RUNNING';
-        if (action === 'PAUSE') timerState = 'PAUSED';
-        if (action === 'COMPLETE') timerState = 'COMPLETED';
-        
-        return { ...b, jobStatus: nextStatus as any, timerState: timerState as any };
-      }));
+      let nextStatus = bill.jobStatus;
+      if (action === 'START' || action === 'RESUME') nextStatus = 'Working';
+      if (action === 'PAUSE') nextStatus = 'Waiting for Parts';
+      if (action === 'COMPLETE') nextStatus = 'Completed';
+      
+      let timerState = bill.timerState;
+      if (action === 'START' || action === 'RESUME') timerState = 'RUNNING';
+      if (action === 'PAUSE') timerState = 'PAUSED';
+      if (action === 'COMPLETE') timerState = 'COMPLETED';
+
+      jobStore.update(billId, {
+        jobStatus: nextStatus as any,
+        timerState: timerState as any
+      });
       
       const updatedBill = await logTimerAction(billId, action);
       
       // Sync with real DB state
-      setQueue(prev => prev.map(b => b.id === billId ? { ...b, ...updatedBill } : b));
+      jobStore.update(billId, updatedBill as any);
       router.refresh();
     } catch (error) {
       console.error('Timer action execute failed:', error);
-      setQueue(previousQueue);
+      // Let realtime or a refetch fix it, or we could manually revert.
       alert('Failed to execute timer action. Please try again.');
     } finally {
       setUpdatingId(null);
@@ -195,11 +189,10 @@ export default function QueueClient({ initialQueue, initialMechanics, garageName
           finalCharge: s.finalCharge
         })),
         overallDiscount: bill.overallDiscount,
-        previousDueAdded: bill.previousDueAdded,
         previousDueBillIds: bill.previousDueBillIds || []
       });
 
-      setQueue(prev => prev.map(b => b.id === billId ? { ...b, ...updatedBill } : b));
+      jobStore.update(billId, updatedBill as any);
       if (typeof window !== 'undefined') {
         window.dispatchEvent(new CustomEvent('gb-data-changed'));
       }
@@ -226,7 +219,7 @@ export default function QueueClient({ initialQueue, initialMechanics, garageName
 
       setUpdatingId(billId);
       // Optimistically remove from queue immediately (0ms delay)
-      setQueue((prev: Bill[]) => prev.filter(b => b.id !== billId));
+      jobStore.remove(billId);
 
       const updatedBill = await updateBill(billId, {
         date: bill.date,
@@ -267,7 +260,6 @@ export default function QueueClient({ initialQueue, initialMechanics, garageName
       router.push(`/bill/${targetId}`);
     } catch (error) {
       console.error('Failed to deliver vehicle:', error);
-      setQueue(previousQueue);
       alert('Failed to update status. Please try again.');
     } finally {
       setUpdatingId(null);

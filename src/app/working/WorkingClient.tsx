@@ -64,6 +64,11 @@ const JobStopwatch = ({ bill }: { bill: Bill }) => {
 
 export default function WorkingClient({ initialJobs, settings, mechanics }: WorkingClientProps) {
   const router = useRouter();
+  // Hydrate store safely
+  useEffect(() => {
+    jobStore.upsertMultiple(initialJobs as any);
+  }, [initialJobs]);
+
   const allJobs = useSyncExternalStore(
     jobStore.subscribe,
     jobStore.getAll,
@@ -71,22 +76,11 @@ export default function WorkingClient({ initialJobs, settings, mechanics }: Work
   );
 
   const jobs = useMemo(() => {
-    const ids = new Set(initialJobs.map(j => j.id));
     return allJobs.filter((j: any) => 
-      ids.has(j.id) && 
       !j.invoiceNumber && 
       ((j.jobStatus as string) === 'Working' || (j.jobStatus as string) === 'Assigned' || j.timerState === 'RUNNING' || j.timerState === 'PAUSED')
     ) as Bill[];
-  }, [allJobs, initialJobs]);
-
-  const setJobs = (newJobs: Bill[] | ((prev: Bill[]) => Bill[])) => {
-    if (typeof newJobs === 'function') {
-      const updated = newJobs(jobs);
-      jobStore.setMultiple(updated as any);
-    } else {
-      jobStore.setMultiple(newJobs as any);
-    }
-  };
+  }, [allJobs]);
 
   // Modals state
   const [activePartJob, setActivePartJob] = useState<Bill | null>(null);
@@ -156,7 +150,7 @@ export default function WorkingClient({ initialJobs, settings, mechanics }: Work
     const action = job.timerState === 'RUNNING' ? 'PAUSE' : (job.timerState === 'PAUSED' ? 'RESUME' : 'START');
     try {
       const updated = await logTimerAction(job.id, action);
-      setJobs(prev => prev.map(j => j.id === job.id ? updated : j));
+      jobStore.update(job.id, updated as any);
       toast.success(`Timer action "${action}" registered.`);
     } catch (err) {
       console.error(err);
@@ -165,9 +159,8 @@ export default function WorkingClient({ initialJobs, settings, mechanics }: Work
   };
 
   const executeEndJob = async (job: Bill) => {
-    const previousJobs = [...jobs];
     // Optimistic UI removal immediately (0ms delay)
-    setJobs(prev => prev.filter(j => j.id !== job.id));
+    jobStore.remove(job.id);
 
     try {
       if (job.timerState === 'RUNNING' || job.timerState === 'PAUSED') {
@@ -184,7 +177,7 @@ export default function WorkingClient({ initialJobs, settings, mechanics }: Work
       }
     } catch (err) {
       console.error(err);
-      setJobs(previousJobs);
+      jobStore.set(job as any); // Revert optimistic removal
       toast.error('Failed to end service job.');
     }
   };
@@ -228,7 +221,7 @@ export default function WorkingClient({ initialJobs, settings, mechanics }: Work
         items: [...currentItems, newItem]
       } as any);
 
-      setJobs(prev => prev.map(j => j.id === activePartJob.id ? updated : j));
+      jobStore.update(activePartJob.id, updated as any);
       setPartName('');
       setPartQty('1');
       setPartPrice('');
@@ -270,7 +263,7 @@ export default function WorkingClient({ initialJobs, settings, mechanics }: Work
         services: [...currentServices, newService]
       } as any);
 
-      setJobs(prev => prev.map(j => j.id === activeLabourJob.id ? updated : j));
+      jobStore.update(activeLabourJob.id, updated as any);
       setServiceName('');
       setServiceCharge('');
       setServiceDiscount('0');

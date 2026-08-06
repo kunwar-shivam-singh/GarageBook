@@ -50,9 +50,11 @@ export default function RootLayout({
         <meta name="apple-mobile-web-app-status-bar-style" content="default" />
         <meta name="apple-mobile-web-app-title" content="GarageBook" />
         <meta name="theme-color" content="#2563eb" />
+      </head>
+      <body className="min-h-full flex flex-col bg-slate-50 text-slate-900">
         <Script
           id="pwa-dev-cleanup"
-          strategy="beforeInteractive"
+          strategy="afterInteractive"
           dangerouslySetInnerHTML={{
             __html: `
               if (typeof window !== 'undefined' && 'serviceWorker' in navigator) {
@@ -80,8 +82,6 @@ export default function RootLayout({
             `,
           }}
         />
-      </head>
-      <body className="min-h-full flex flex-col bg-slate-50 text-slate-900">
         <Providers>
           {children}
         </Providers>

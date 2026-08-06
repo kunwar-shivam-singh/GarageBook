@@ -30,9 +30,9 @@ interface DashboardClientProps {
 }
 
 export default function DashboardClient({ initialBills, settings }: DashboardClientProps) {
-  // Use global state as source of truth
+  // Hydrate store safely
   useEffect(() => {
-    jobStore.setMultiple(initialBills as any);
+    jobStore.upsertMultiple(initialBills as any);
   }, [initialBills]);
 
   const allJobs = useSyncExternalStore(
@@ -44,15 +44,6 @@ export default function DashboardClient({ initialBills, settings }: DashboardCli
   const bills = useMemo(() => {
     return allJobs as Bill[];
   }, [allJobs]);
-
-  const setBills = (newBills: Bill[] | ((prev: Bill[]) => Bill[])) => {
-    if (typeof newBills === 'function') {
-      const updated = newBills(bills);
-      jobStore.setMultiple(updated as any);
-    } else {
-      jobStore.setMultiple(newBills as any);
-    }
-  };
   const [priorities, setPriorities] = useState<Record<string, string>>({});
   const [dashboardFilter, setDashboardFilter] = useState<'All' | 'Today' | 'Waiting' | 'Working' | 'Completed' | 'PendingDelivery' | 'PendingPayment'>('All');
 
@@ -371,7 +362,7 @@ export default function DashboardClient({ initialBills, settings }: DashboardCli
 
     try {
       const saved = await updateBill(bill.id, payload);
-      setBills(prev => prev.map(b => b.id === bill.id ? { ...b, ...saved, id: saved.id } : b));
+      jobStore.update(bill.id, saved as any);
       toast.success('Workshop operational job card updated!');
       if (typeof window !== 'undefined') {
         window.dispatchEvent(new CustomEvent('gb-data-changed'));
@@ -386,16 +377,14 @@ export default function DashboardClient({ initialBills, settings }: DashboardCli
 
   // Complete Job Execution with Optimistic UI Update
   const executeCompleteJob = async (bill: Bill) => {
-    const previousBills = [...bills];
     setUpdatingId(bill.id);
     // Optimistic UI update immediately (0ms delay)
-    setBills(prev => prev.map(b => b.id === bill.id ? { ...b, jobStatus: 'Ready for Delivery' } : b));
+    jobStore.update(bill.id, { jobStatus: 'Ready for Delivery' });
 
     try {
       await recalculateAndSave(bill, { jobStatus: 'Ready for Delivery' });
     } catch (err) {
-      // Rollback on failure
-      setBills(previousBills);
+      // Let real time or refetch fix it.
       toast.error('Failed to complete job.');
     } finally {
       setUpdatingId(null);
@@ -417,14 +406,12 @@ export default function DashboardClient({ initialBills, settings }: DashboardCli
       setShowClearanceModal({ bill });
       return;
     }
-    const previousBills = [...bills];
     setUpdatingId(bill.id);
-    setBills(prev => prev.map(b => b.id === bill.id ? { ...b, jobStatus: 'Delivered' } : b));
+    jobStore.update(bill.id, { jobStatus: 'Delivered' });
 
     try {
       await recalculateAndSave(bill, { jobStatus: 'Delivered' });
     } catch (err) {
-      setBills(previousBills);
       toast.error('Failed to deliver vehicle.');
     } finally {
       setUpdatingId(null);
@@ -436,10 +423,9 @@ export default function DashboardClient({ initialBills, settings }: DashboardCli
     e.preventDefault();
     if (!showClearanceModal) return;
     const { bill } = showClearanceModal;
-    const previousBills = [...bills];
     try {
       setUpdatingId(bill.id);
-      setBills(prev => prev.map(b => b.id === bill.id ? { ...b, jobStatus: 'Delivered', expectedPaymentDate: deliveryClearanceDate } : b));
+      jobStore.update(bill.id, { jobStatus: 'Delivered', expectedPaymentDate: deliveryClearanceDate });
       await recalculateAndSave(bill, { 
         jobStatus: 'Delivered', 
         expectedPaymentDate: deliveryClearanceDate 
@@ -450,7 +436,6 @@ export default function DashboardClient({ initialBills, settings }: DashboardCli
       console.error('DASHBOARD DELIVER EXCEPTION:', err);
       const msg = err?.message || err?.details || err?.hint || 'Unknown error occurred.';
       const code = err?.code || 'NO_CODE';
-      setBills(previousBills);
       toast.error(`Failed to deliver vehicle. [${code}] ${msg}`);
     } finally {
       setUpdatingId(null);
@@ -559,7 +544,7 @@ export default function DashboardClient({ initialBills, settings }: DashboardCli
       // Re-fetch updated bill details
       const updated = await getBillById(activeModal.bill.id);
       if (updated) {
-        setBills(prev => prev.map(b => b.id === activeModal.bill.id ? updated : b));
+        jobStore.update(activeModal.bill.id, updated as any);
       }
       
       toast.success('Payment recorded successfully.');
@@ -600,7 +585,7 @@ export default function DashboardClient({ initialBills, settings }: DashboardCli
       // Re-fetch updated bill details
       const freshBill = await getBillById(assigningBill.id);
       if (freshBill) {
-        setBills(prev => prev.map(b => b.id === assigningBill.id ? freshBill : b));
+        jobStore.update(assigningBill.id, freshBill as any);
       }
 
       toast.success('Mechanic assigned successfully!');

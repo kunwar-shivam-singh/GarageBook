@@ -29,9 +29,9 @@ interface JobCardClientProps {
 export default function JobCardClient({ bill: initialBill, settings }: JobCardClientProps) {
   const router = useRouter();
   
-  // Use global state as source of truth
+  // Hydrate store safely
   useEffect(() => {
-    jobStore.set(initialBill as any);
+    jobStore.upsertMultiple([initialBill as any]);
   }, [initialBill]);
 
   const getBillSnapshot = React.useCallback(
@@ -44,15 +44,6 @@ export default function JobCardClient({ bill: initialBill, settings }: JobCardCl
     getBillSnapshot,
     getBillSnapshot
   ) as Bill;
-
-  const setBill = (updatedBill: Bill | ((prev: Bill) => Bill)) => {
-    if (typeof updatedBill === 'function') {
-      const newBill = updatedBill(bill);
-      jobStore.set(newBill as any);
-    } else {
-      jobStore.set(updatedBill as any);
-    }
-  };
 
   const [currentTime, setCurrentTime] = useState<number>(Date.now());
   const [saving, setSaving] = useState(false);
@@ -290,7 +281,7 @@ export default function JobCardClient({ bill: initialBill, settings }: JobCardCl
 
     try {
       const saved = await updateBill(bill.id, payload);
-      setBill(saved);
+      jobStore.update(bill.id, saved as any);
       setPaymentAmount(String(saved.remainingAmount));
       return saved;
     } catch (err) {
@@ -317,14 +308,14 @@ export default function JobCardClient({ bill: initialBill, settings }: JobCardCl
       if (action === 'COMPLETE') nextTimerState = 'COMPLETED';
 
       // 1. Optimistic UI update immediately (0ms delay)
-      setBill(prev => ({ ...prev, jobStatus: nextStatus as any, timerState: nextTimerState as any }));
+      jobStore.update(bill.id, { jobStatus: nextStatus as any, timerState: nextTimerState as any });
 
       // 2. Server DB update
       const updated = await logTimerAction(bill.id, action);
       
       // 3. Re-sync exactly with server return
       if (updated) {
-        setBill(prev => ({ ...prev, ...updated, jobStatus: updated.jobStatus as any }));
+        jobStore.update(bill.id, { ...updated, jobStatus: updated.jobStatus as any });
       }
       
       toast.success(`Timer action "${action}" registered.`);
@@ -333,7 +324,7 @@ export default function JobCardClient({ bill: initialBill, settings }: JobCardCl
       }
     } catch (err) {
       console.error(err);
-      setBill(previousBill); // Rollback on failure
+      jobStore.set(previousBill as any); // Rollback on failure
       toast.error('Failed to update timer state.');
     } finally {
       setSaving(false);
